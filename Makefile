@@ -89,10 +89,19 @@ clean:
 	rm -frv $(OBJECTS) OsirisEdit dist build/card_test build/osiris-card-tool
 
 
-# SD card naming/sorting tests (no UI, no libraries needed)
+# Unit tests: SD card naming/sorting (no libraries needed), and wavetable processing (links the editor's wave code)
 .PHONY: test
-test: build/card_test
+test: build/card_test build/process_test
 	./build/card_test
+	./build/process_test
+
+build/process_test: tests/process_test.cpp src/wtprocess.cpp src/wtprocess.hpp src/wave.cpp src/math.cpp build/pffft_test.o
+	@mkdir -p build
+	$(CXX) $(FLAGS) $(CXXFLAGS) -Isrc -o $@ tests/process_test.cpp src/wtprocess.cpp src/wave.cpp src/math.cpp build/pffft_test.o $(LDFLAGS)
+
+build/pffft_test.o: ext/pffft/pffft.c
+	@mkdir -p build
+	$(CC) $(FLAGS) $(CFLAGS) -c -o $@ $<
 
 build/card_test: tests/card_test.cpp src/osiriscard.cpp src/osiriscard.hpp
 	@mkdir -p build
@@ -102,9 +111,11 @@ build/card_test: tests/card_test.cpp src/osiriscard.cpp src/osiriscard.hpp
 .PHONY: cardtool
 cardtool: build/osiris-card-tool
 
-build/osiris-card-tool: tools/osiris_card_tool.cpp src/cardio.cpp src/cardio.hpp src/osiriscard.cpp src/osiriscard.hpp
+CARDTOOL_SOURCES = tools/osiris_card_tool.cpp src/cardio.cpp src/osiriscard.cpp src/wtprocess.cpp src/batch.cpp
+
+build/osiris-card-tool: $(CARDTOOL_SOURCES) src/cardio.hpp src/osiriscard.hpp src/wtprocess.hpp src/batch.hpp build/pffft_test.o
 	@mkdir -p build
-	$(CXX) $(FLAGS) $(CXXFLAGS) -Isrc -o $@ tools/osiris_card_tool.cpp src/cardio.cpp src/osiriscard.cpp $(LDFLAGS)
+	$(CXX) $(FLAGS) $(CXXFLAGS) -Isrc -o $@ $(CARDTOOL_SOURCES) build/pffft_test.o $(LDFLAGS)
 
 
 .PHONY: dist

@@ -23,6 +23,13 @@ void historyPush() {
 	previousTime = time;
 }
 
+void historyPushNew() {
+	previousTime = -INFINITY;
+	historyPush();
+	// Changes straight after this one shouldn't merge into it either
+	previousTime = -INFINITY;
+}
+
 void historyUndo() {
 	if (currentIndex >= 1) {
 		currentIndex--;

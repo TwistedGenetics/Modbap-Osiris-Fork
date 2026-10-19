@@ -3,6 +3,8 @@
 
 #include "OsirisEdit.hpp"
 #include "cardio.hpp"
+#include "cardpage.hpp"
+#include "wtprocess.hpp"
 #include "theme.hpp"
 
 #include "imgui.h"
@@ -43,12 +45,40 @@ static int fixChoice = 0;      // 0 resample, 1 pad
 static bool removeJunk = true;
 static ExportResult lastResult;
 
+// One level of undo for changes to the whole card
+static Card undoCard;
+static bool undoAvailable = false;
+static std::string undoLabel;
+static bool openCycleConfirm = false;
+static bool exportCycle = false;
+
 static ImU32 warnColor() {
 	return theme.modern ? IM_COL32(0xf5, 0xb5, 0x4a, 0xff) : IM_COL32(0xc0, 0x60, 0x00, 0xff);
 }
 
 static void setStatus(const std::string &s) {
 	status = s;
+}
+
+void cardSnapshot(const char *label) {
+	undoCard = card;
+	undoAvailable = true;
+	undoLabel = label;
+}
+
+Slot *cardSlot(int bank, int slot) {
+	if (bank < 0 || bank >= BANKS || slot < 0 || slot >= SLOTS)
+		return NULL;
+	return &card.slots[bank][slot];
+}
+
+void cardSetStatus(const std::string &s) {
+	status = s;
+}
+
+static void cycleSlot(Slot &slot) {
+	if (slot.filled && (int)slot.samples.size() >= slot.waveCount * WAVE_SAMPLES)
+		wt::processTable(slot.samples.data(), slot.waveCount, true, false);
 }
 
 static void syncPackBuffers() {
@@ -128,8 +158,9 @@ static void openInEditor(int b, int s) {
 	std::vector<float> samples = wavesForEditor(slot, BANK_LEN);
 	currentBank.clear();
 	currentBank.setSamples(samples.data());
-	historyPush();
+	historyPushNew();
 	uiSetPage(0);
+	blankCheckEditor(BANK_LEN, slot.name);
 }
 
 static void addWavFile() {
@@ -150,6 +181,7 @@ static void addWavFile() {
 		selBank = b;
 		selSlot = s;
 		setStatus("Added " + fileBaseName(path) + " to " + slotLabel(b, s));
+		blankCheckSlot(b, s, false);
 	}
 	free(path);
 }
@@ -163,9 +195,15 @@ static void addFolder() {
 	std::vector<std::string> files = listWavFiles(path);
 	notes.clear();
 	int b = selBank, s = selSlot;
+	bool before[BANKS][SLOTS];
+	card.getOccupied(before);
 	int added = fillFromFiles(card, files, b, s, notes);
 	setStatus("Added " + std::to_string(added) + " of " + std::to_string(files.size()) + " WAV files from " + fileBaseName(path));
 	free(path);
+	for (int bb = 0; bb < BANKS; bb++)
+		for (int ss = 0; ss < SLOTS; ss++)
+			if (!before[bb][ss] && card.slots[bb][ss].filled)
+				blankCheckSlot(bb, ss, false);
 }
 
 static void openSdCard() {
@@ -224,6 +262,7 @@ static void saveProjectAs() {
 }
 
 static void fixAll(FixMode mode) {
+	cardSnapshot(mode == FIX_PAD ? "Pad All to 32" : "Resample All to 32");
 	int n = 0;
 	for (int b = 0; b < BANKS; b++) {
 		for (int s = 0; s < SLOTS; s++) {
@@ -393,18 +432,28 @@ static void slotMenu() {
 				setStatus("Duplicated " + slotLabel(b, s) + " to " + slotLabel(p[0].bank, p[0].slot));
 			}
 		}
+		if (ImGui::MenuItem("Cycle")) {
+			cardSnapshot("Cycle");
+			cycleSlot(slot);
+			setStatus("Cycled " + slotLabel(menuBank, menuSlot));
+		}
+		if (card.blanks(menuBank, menuSlot).any() && ImGui::MenuItem("Fill Blank Waves..."))
+			blankCheckSlot(menuBank, menuSlot, true);
 		if (slot.waveCount != WAVES) {
 			if (ImGui::MenuItem("Resample to 32 Waves")) {
+				cardSnapshot("Resample");
 				slot.samples = slotTo32(slot, FIX_RESAMPLE);
 				slot.waveCount = WAVES;
 			}
 			if (ImGui::MenuItem("Pad / Trim to 32 Waves")) {
+				cardSnapshot("Pad / Trim");
 				slot.samples = slotTo32(slot, FIX_PAD);
 				slot.waveCount = WAVES;
 			}
 		}
 		ImGui::Separator();
 		if (ImGui::MenuItem("Clear")) {
+			cardSnapshot("Clear Slot");
 			slot.clear();
 			setStatus("Cleared " + slotLabel(menuBank, menuSlot));
 		}
@@ -508,6 +557,7 @@ static void exportDialog(const std::vector<Issue> &issues) {
 		ImGui::PopStyleColor();
 	}
 
+	ImGui::Checkbox("Apply Cycle to every wavetable", &exportCycle);
 	ImGui::Checkbox("Remove macOS ._ and .DS_Store files afterwards", &removeJunk);
 	ImGui::Dummy(ImVec2(0, 4));
 
@@ -519,6 +569,7 @@ static void exportDialog(const std::vector<Issue> &issues) {
 		options.existing = existingChoice == 1 ? ExportOptions::MERGE : ExportOptions::BACKUP;
 		options.fix = fixChoice == 1 ? FIX_PAD : FIX_RESAMPLE;
 		options.removeJunk = removeJunk;
+		options.cycle = exportCycle;
 		lastResult = exportCard(card, exportDest, options);
 		setStatus(lastResult.ok ? "Exported " + std::to_string(lastResult.written) + " files" : "Export finished with errors");
 		ImGui::CloseCurrentPopup();
@@ -568,7 +619,7 @@ static void sidebar(const std::vector<Issue> &issues) {
 	{
 		ImDrawList *dl = ImGui::GetWindowDrawList();
 		ImVec2 a = ImGui::GetCursorScreenPos();
-		ImVec2 size = ImVec2(ImGui::GetContentRegionAvailWidth(), 110.f);
+		ImVec2 size = ImVec2(ImGui::GetContentRegionAvailWidth(), ImGui::GetContentRegionAvail().y > 560.f ? 110.f : 72.f);
 		dl->AddRectFilled(a, a + size, theme.display, ImGui::GetStyle().FrameRounding);
 		if (theme.outline)
 			dl->AddRect(a, a + size, theme.outline, ImGui::GetStyle().FrameRounding);
@@ -617,7 +668,9 @@ static void sidebar(const std::vector<Issue> &issues) {
 
 	// File names for the selected bank
 	ui::SectionHeading(("Files in Osiris/" + std::string(1, bankLetter(selBank))).c_str());
-	ImGui::BeginChild("file names", ImVec2(0, 190), false);
+	// The list shrinks on small windows so the Checks below stay visible
+	float namesHeight = clampf(ImGui::GetContentRegionAvail().y - 210.f, 70.f, 190.f);
+	ImGui::BeginChild("file names", ImVec2(0, namesHeight), false);
 	{
 		int shown = 0;
 		for (int s = 0; s < SLOTS; s++) {
@@ -638,9 +691,10 @@ static void sidebar(const std::vector<Issue> &issues) {
 
 	// Checks
 	ui::SectionHeading("Checks");
-	int waveCountIssues = 0, gaps = 0;
+	int waveCountIssues = 0, gaps = 0, blankIssues = 0;
 	bool empty = false;
 	for (const Issue &i : issues) {
+		blankIssues += i.kind == Issue::BLANK_WAVES;
 		waveCountIssues += i.kind == Issue::WAVE_COUNT;
 		gaps += i.kind == Issue::GAP;
 		empty = empty || i.kind == Issue::EMPTY_CARD;
@@ -648,7 +702,8 @@ static void sidebar(const std::vector<Issue> &issues) {
 	if (issues.empty()) {
 		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(theme.accent), "Ready to export");
 	}
-	ImGui::BeginChild("checks", ImVec2(0, waveCountIssues || gaps ? -ImGui::GetItemsLineHeightWithSpacing() - 4.f : 0), false);
+	int buttonRows = (waveCountIssues || gaps ? 1 : 0) + (blankIssues ? 1 : 0);
+	ImGui::BeginChild("checks", ImVec2(0, -(ImGui::GetItemsLineHeightWithSpacing() * buttonRows) - (buttonRows ? 4.f : 0.f)), false);
 	for (const Issue &i : issues) {
 		ImU32 col = (i.kind == Issue::DUPLICATE_NAME || i.kind == Issue::EMPTY_CARD) ? theme.textDim : warnColor();
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(col));
@@ -677,15 +732,23 @@ static void sidebar(const std::vector<Issue> &issues) {
 		if (gaps)
 			ImGui::SameLine();
 	}
-	if (gaps && ImGui::Button("Close Gaps"))
+	if (gaps && ImGui::Button("Close Gaps")) {
+		cardSnapshot("Close Gaps");
 		card.closeGaps();
+	}
+	if (blankIssues && ImGui::Button("Fill Blank Waves...")) {
+		for (int b = 0; b < BANKS; b++)
+			for (int s = 0; s < SLOTS; s++)
+				if (card.blanks(b, s).any())
+					blankCheckSlot(b, s, true);
+	}
 }
 
 void cardPage() {
 	ImGui::BeginChild("SD Card", ImVec2(0, 0), true);
 
 	// Toolbar
-	if (ImGui::Button("Open SD Card..."))
+	if (ImGui::Button("Open Card..."))
 		openSdCard();
 	ImGui::SameLine();
 	if (ImGui::Button("Open Project..."))
@@ -694,7 +757,7 @@ void cardPage() {
 	if (ImGui::Button("Save Project..."))
 		saveProjectAs();
 	ImGui::SameLine(0, 18);
-	if (ImGui::Button("Add Editor Wavetable")) {
+	if (ImGui::Button("Add From Editor")) {
 		int b, s;
 		if (nextFree(b, s))
 			slotFromEditor(b, s);
@@ -708,15 +771,46 @@ void cardPage() {
 	if (ImGui::Button("Add Folder..."))
 		addFolder();
 	ImGui::SameLine(0, 18);
-	if (ImGui::Button("Close Gaps"))
+	if (ImGui::Button("Cycle All Slots"))
+		openCycleConfirm = true;
+	ImGui::SameLine();
+	if (ImGui::Button("Close Gaps")) {
+		cardSnapshot("Close Gaps");
 		card.closeGaps();
+	}
 	ImGui::SameLine();
 	if (ImGui::Button("Clear Card"))
 		ImGui::OpenPopup("Clear Card?");
+	if (openCycleConfirm) {
+		ImGui::OpenPopup("Cycle All Slots?");
+		openCycleConfirm = false;
+	}
+	if (ImGui::BeginPopupModal("Cycle All Slots?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::Text("Apply Cycle to every wave in all %d wavetables on the card?", card.filledCount());
+		ImGui::TextDisabled("Cycle lines up the end of each wave with its start, removing the click at the loop point.");
+		ImGui::TextDisabled("You can undo this with the Undo button.");
+		if (accentButton("Cycle All")) {
+			cardSnapshot("Cycle All Slots");
+			int n = 0;
+			for (int b = 0; b < BANKS; b++)
+				for (int s = 0; s < SLOTS; s++)
+					if (card.slots[b][s].filled) {
+						cycleSlot(card.slots[b][s]);
+						n++;
+					}
+			setStatus("Cycled " + std::to_string(n) + (n == 1 ? " wavetable" : " wavetables"));
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
 	if (ImGui::BeginPopupModal("Clear Card?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ImGui::Text("Remove all %d wavetables from the layout?", card.filledCount());
 		ImGui::TextDisabled("Nothing on your SD card is touched.");
 		if (ImGui::Button("Clear", ImVec2(120, 0))) {
+			cardSnapshot("Clear Card");
 			card.clear();
 			syncPackBuffers();
 			ImGui::CloseCurrentPopup();
@@ -729,6 +823,17 @@ void cardPage() {
 
 	// Second row: option, status, and the Export button on the right
 	ImGui::Checkbox("Put slot names in file names", &card.slotNamesInFileNames);
+	if (undoAvailable) {
+		ImGui::SameLine(0, 18);
+		if (ImGui::Button(("Undo " + undoLabel).c_str())) {
+			Card redo = card;
+			card = undoCard;
+			undoCard = redo;
+			syncPackBuffers();
+			setStatus("Undid " + undoLabel);
+			undoAvailable = false;
+		}
+	}
 	{
 		const char *exportLabel = "Export to SD Card...";
 		float exportW = ImGui::CalcTextSize(exportLabel).x + ImGui::GetStyle().FramePadding.x * 2.f;

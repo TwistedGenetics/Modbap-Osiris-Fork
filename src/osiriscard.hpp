@@ -66,8 +66,10 @@ struct SlotInfo {
 	bool filled;
 	int waveCount;
 	std::string name;
-	SlotInfo() : filled(false), waveCount(0) {}
-	SlotInfo(bool filled, int waveCount, const std::string &name) : filled(filled), waveCount(waveCount), name(name) {}
+	int blankWaves; // silent waves in the table
+	SlotInfo() : filled(false), waveCount(0), blankWaves(0) {}
+	SlotInfo(bool filled, int waveCount, const std::string &name, int blankWaves = 0)
+		: filled(filled), waveCount(waveCount), name(name), blankWaves(blankWaves) {}
 };
 
 struct Issue {
@@ -76,6 +78,7 @@ struct Issue {
 		WAVE_COUNT,     // file isn't 32 waves
 		DUPLICATE_NAME, // two slots share a name
 		EMPTY_CARD,     // nothing to export
+		BLANK_WAVES,    // file has silent waves
 	};
 	Kind kind;
 	int bank;

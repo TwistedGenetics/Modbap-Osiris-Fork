@@ -205,7 +205,8 @@ struct Bank {
 	/** WAV file with BANK_LEN * WAVE_LEN samples */
 	void saveWAV(const char *filename);
 	void saveWAV(const char *filename, SF_INFO info, long bank_len, long wave_len);
-	void loadWAV(const char *filename);
+	/** Returns how many waves the file had (it may be more or fewer than BANK_LEN), or -1 if it couldn't be read */
+	int loadWAV(const char *filename);
 	/** Saves each wave to its own file in a directory */
 	void saveWaves(const char *dirname);
 };
@@ -217,6 +218,8 @@ struct Bank {
 
 /** Call as much as you like. History will only be pushed if a time delay between the last call has occurred. */
 void historyPush();
+/** Always starts a new undo step (historyPush() merges changes made within 0.2 s) */
+void historyPushNew();
 void historyUndo();
 void historyRedo();
 void historyClear();
@@ -337,3 +340,35 @@ void importPage();
 void cardPage();
 /** Fills the SD Card page with example content (screenshot mode) */
 void cardPageDemo(const char *banksDir);
+
+////////////////////
+// blankpopup.cpp
+////////////////////
+
+enum BlankPref {
+	BLANK_ASK,
+	BLANK_ALWAYS,
+	BLANK_NEVER,
+};
+/** Preferences > Blank Waves (BlankPref, wt::MorphMode, wt::EdgeMode) */
+extern int blankPrefMode;
+extern int blankPrefMorph;
+extern int blankPrefEdges;
+/** Checks the editor's wavetable for blank waves after loading. `sourceWaves` is how many waves the file had. */
+void blankCheckEditor(int sourceWaves, const std::string &name);
+/** Checks an SD card slot. `force` shows the pop-up even if Preferences say never/always. */
+void blankCheckSlot(int bank, int slot, bool force);
+bool blankPopupPending();
+void blankPreferencesMenu();
+void blankRenderPopup();
+
+////////////////////
+// batchpage.cpp
+////////////////////
+
+void batchOpenDialog();
+void batchRenderDialog();
+/** Stops a running batch (on quit) */
+void batchShutdown();
+/** Screenshot mode: opens the dialog with `sourceDir` filled in */
+void batchDemo(const char *sourceDir);

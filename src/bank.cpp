@@ -103,13 +103,15 @@ void Bank::saveWAV(const char *filename, SF_INFO info, long bank_len, long wave_
 	sf_close(sf);
 }
 
-void Bank::loadWAV(const char *filename) {
+int Bank::loadWAV(const char *filename) {
 	clear();
 
 	SF_INFO info;
+	memset(&info, 0, sizeof(info));
 	SNDFILE *sf = sf_open(filename, SFM_READ, &info);
 	if (!sf)
-		return;
+		return -1;
+	int fileWaves = (int)((info.frames + WAVE_LEN - 1) / WAVE_LEN);
 
 	for (int i = 0; i < BANK_LEN; i++) {
 		sf_read_float(sf, waves[i].samples, WAVE_LEN);
@@ -117,6 +119,7 @@ void Bank::loadWAV(const char *filename) {
 	}
 
 	sf_close(sf);
+	return fileWaves;
 }
 
 

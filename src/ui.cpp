@@ -16,6 +16,7 @@
 #include "imgui_internal.h"
 #include "theme.hpp"
 #include "cardio.hpp"
+#include "wtprocess.hpp"
 
 #include "osdialog/osdialog.h"
 
@@ -189,9 +190,15 @@ static void menuOpenBank()
 	if (path)
 	{
 		showCurrentBankPage();
-		currentBank.loadWAV(path);
+		int fileWaves = currentBank.loadWAV(path);
 		snprintf(lastFilename, sizeof(lastFilename), "%s", path);
-		historyPush();
+		historyPushNew();
+		if (fileWaves > 0)
+		{
+			char name[1024];
+			snprintf(name, sizeof(name), "%s", path);
+			blankCheckEditor(fileWaves, basename(name));
+		}
 		free(path);
 	}
 	free(dir);
@@ -513,6 +520,8 @@ void renderMenu()
 				menuSaveBankAs();
 			if (ImGui::MenuItem("Save Waves to Folder...", NULL))
 				menuSaveWaves();
+			if (ImGui::MenuItem("Batch Process Folder...", NULL))
+				batchOpenDialog();
 			if (ImGui::MenuItem("Convert Folder for Osiris...", NULL))
 				menuConvert();
 			if (ImGui::MenuItem("Quit", ImGui::GetIO().OSXBehaviors ? "Cmd+Q" : "Ctrl+Q"))
@@ -575,6 +584,16 @@ void renderMenu()
 			}
 			ImGui::EndMenu();
 		}
+		// Preferences
+		if (ImGui::BeginMenu("Preferences"))
+		{
+			if (ImGui::BeginMenu("Blank Waves"))
+			{
+				blankPreferencesMenu();
+				ImGui::EndMenu();
+			}
+			ImGui::EndMenu();
+		}
 		// Help
 		if (ImGui::BeginMenu("Help"))
 		{
@@ -598,6 +617,7 @@ void renderPopup()
 	static char packName[48] = "Pack";
 	static int startBank = 0;
 	static int fixChoice = 0;
+	static bool cycleAll = false;
 	static int existingChoice = 0;
 	static std::vector<std::string> resultLines;
 	static bool resultOk = true;
@@ -676,6 +696,7 @@ void renderPopup()
 	ImGui::RadioButton("Resample##convert", &fixChoice, 0);
 	ImGui::SameLine();
 	ImGui::RadioButton("Pad / trim##convert", &fixChoice, 1);
+	ImGui::Checkbox("Apply Cycle to every wavetable##convert", &cycleAll);
 
 	// Destination
 	ui::SectionHeading("Destination (SD card or folder)");
@@ -736,6 +757,7 @@ void renderPopup()
 		osiris::ExportOptions options;
 		options.existing = existingChoice == 1 ? osiris::ExportOptions::MERGE : osiris::ExportOptions::BACKUP;
 		options.fix = fixChoice == 1 ? osiris::FIX_PAD : osiris::FIX_RESAMPLE;
+		options.cycle = cycleAll;
 		osiris::ExportResult r = osiris::exportCard(card, destDir, options);
 		resultOk = r.ok;
 		resultLines.clear();
@@ -1136,6 +1158,8 @@ void renderMain()
 		// Menu bar
 		renderMenu();
 		renderPopup();
+		batchRenderDialog();
+		blankRenderPopup();
 		renderPreview();
 		// Tab bar
 
@@ -1612,6 +1636,17 @@ void uiInit()
 		if (f)
 		{
 			fread(&styleId, sizeof(styleId), 1, f);
+			// Added later: blank-wave preferences (older files just stop here)
+			int prefs[3];
+			if (fread(prefs, sizeof(int), 3, f) == 3)
+			{
+				if (prefs[0] >= BLANK_ASK && prefs[0] <= BLANK_NEVER)
+					blankPrefMode = prefs[0];
+				if (prefs[1] >= wt::CROSSFADE && prefs[1] <= wt::SPECTRAL)
+					blankPrefMorph = prefs[1];
+				if (prefs[2] >= wt::EDGE_HOLD && prefs[2] <= wt::EDGE_LEAVE)
+					blankPrefEdges = prefs[2];
+			}
 			fclose(f);
 		}
 	}
@@ -1627,9 +1662,12 @@ void uiDestroy()
 		if (f)
 		{
 			fwrite(&styleId, sizeof(styleId), 1, f);
+			int prefs[3] = {blankPrefMode, blankPrefMorph, blankPrefEdges};
+			fwrite(prefs, sizeof(int), 3, f);
 			fclose(f);
 		}
 	}
+	batchShutdown();
 }
 
 void uiRender()
@@ -1645,7 +1683,7 @@ void uiSetPage(int page)
 
 bool uiScreenshotStep(SDL_Window *window, const char *dir)
 {
-	static const char *pageNames[NUM_PAGES] = {"editor", "effects", "grid", "waterfall", "import", "sdcard"};
+	static const char *pageNames[NUM_PAGES + 2] = {"editor", "effects", "grid", "waterfall", "import", "sdcard", "batch", "blank-waves"};
 	static int frame = 0;
 	static int page = 0;
 	// Give each page a few frames to settle (fonts, layout, audio thread)
@@ -1672,8 +1710,34 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir)
 
 	frame = 0;
 	page++;
-	if (page >= NUM_PAGES)
+	if (page >= NUM_PAGES + 2)
 		return true;
-	currentPage = (Page)page;
+	if (page < NUM_PAGES)
+	{
+		currentPage = (Page)page;
+	}
+	else if (page == NUM_PAGES)
+	{
+		// Batch dialog, pointed at the factory banks
+		currentPage = EDITOR_PAGE;
+		char banks[1024];
+		snprintf(banks, sizeof(banks), "%s", getenv("OSIRIS_SCREENSHOT_BANK") ? getenv("OSIRIS_SCREENSHOT_BANK") : "banks/ROM A.wav");
+		batchDemo(dirname(banks));
+	}
+	else
+	{
+		// A table with blank waves in the middle and at the end
+		batchDemo(NULL);
+		currentPage = EDITOR_PAGE;
+		for (int w = 0; w < BANK_LEN; w++)
+		{
+			if ((w >= 8 && w <= 13) || w >= BANK_LEN - 2)
+			{
+				memset(currentBank.waves[w].samples, 0, sizeof(float) * WAVE_LEN);
+				currentBank.waves[w].commitSamples();
+			}
+		}
+		blankCheckEditor(BANK_LEN, "ROM A.wav");
+	}
 	return false;
 }

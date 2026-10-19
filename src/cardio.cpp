@@ -160,10 +160,17 @@ int Card::filledCount() const {
 	return n;
 }
 
+wt::BlankReport Card::blanks(int bank, int slot) const {
+	const Slot &s = slots[bank][slot];
+	if (!s.filled || (int)s.samples.size() < s.waveCount * WAVE_SAMPLES)
+		return wt::BlankReport();
+	return wt::findBlanks(s.samples.data(), s.waveCount, s.waveCount);
+}
+
 void Card::getSlotInfo(SlotInfo out[BANKS][SLOTS]) const {
 	for (int b = 0; b < BANKS; b++)
 		for (int s = 0; s < SLOTS; s++)
-			out[b][s] = SlotInfo(slots[b][s].filled, slots[b][s].waveCount, slots[b][s].name);
+			out[b][s] = SlotInfo(slots[b][s].filled, slots[b][s].waveCount, slots[b][s].name, blanks(b, s).blankCount);
 }
 
 void Card::getOccupied(bool out[BANKS][SLOTS]) const {
@@ -513,7 +520,10 @@ ExportResult exportCard(const Card &card, const std::string &destination, const 
 				continue;
 			std::string path = joinPath(bankDir, card.fileNameFor(b, s));
 			std::string error;
-			if (writeWavetable(path, slotTo32(slot, options.fix), error)) {
+			std::vector<float> data = slotTo32(slot, options.fix);
+			if (options.cycle)
+				wt::processTable(data.data(), WAVES, true, false);
+			if (writeWavetable(path, data, error)) {
 				result.written++;
 				result.perBank[b]++;
 			}

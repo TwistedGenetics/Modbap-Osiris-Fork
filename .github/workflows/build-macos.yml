@@ -24,11 +24,12 @@ jobs:
       - name: Build
         run: make -j"$(sysctl -n hw.ncpu)"
 
-      - name: Card naming tests
+      - name: Unit tests (card naming, wavetable processing)
         shell: bash
         run: |
           mkdir -p ci-logs
-          make test 2>&1 | tee ci-logs/card-tests.log
+          set -o pipefail
+          make test 2>&1 | tee ci-logs/unit-tests.log
 
       - name: Build card tool
         run: make cardtool
@@ -120,7 +121,60 @@ jobs:
           # Read the card back, and round-trip a card project
           $tool open "$T"
           $tool project-roundtrip banks catalog/02FM
+
+          # "Apply Cycle to every wavetable": every exported wave loops cleanly
+          C="$RUNNER_TEMP/cycled-card"
+          rm -rf "$C" && mkdir -p "$C"
+          $tool export "$C" "Cycled" banks catalog/00Digital --cycle
+          $tool verify "$C" --cycled
           echo "SD card export checks passed"
+
+      - name: Test batch processing
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/batch.log) 2>&1
+          tool=./build/osiris-card-tool
+          B="$RUNNER_TEMP/batch"
+          rm -rf "$B" && mkdir -p "$B"
+
+          # Awkward test tables: blank waves (middle, start, end), 24-bit 48 kHz, stereo float, leftover samples,
+          # a Serum-style 2048-sample table (must be skipped), a 256 table with a clm chunk (must keep it)
+          $tool make-test-tables "$B/src"
+          cp banks/*.wav "$B/src/"
+          (cd "$B/src" && shasum *.wav > ../before.sha)
+
+          # Cycle + spectral fill, wrapping round at the edges
+          $tool batch "$B/src" "$B/out" --fill spectral --edges wrap
+          $tool verify-batch "$B/src" "$B/out" --fill
+
+          # Originals untouched
+          (cd "$B/src" && shasum -c ../before.sha)
+
+          # Same names, and the same format according to Apple's afinfo
+          for f in "$B"/src/*.wav; do
+            name=$(basename "$f")
+            if [ "$name" = "05 Serum 2048.wav" ]; then test ! -e "$B/out/$name"; continue; fi
+            test -f "$B/out/$name" || { echo "missing: $name"; exit 1; }
+            a=$(afinfo "$f" | grep -E "Data format|audio packets|bit depth" || true)
+            b=$(afinfo "$B/out/$name" | grep -E "Data format|audio packets|bit depth" || true)
+            if [ "$a" != "$b" ]; then echo "format changed: $name"; echo "$a"; echo "$b"; exit 1; fi
+          done
+          echo "afinfo: formats match"
+
+          # Crossfade with hold, and cycle only
+          $tool batch "$B/src" "$B/out2" --fill crossfade --edges hold
+          $tool verify-batch "$B/src" "$B/out2" --fill
+          $tool batch "$B/src" "$B/out3"
+          $tool verify-batch "$B/src" "$B/out3"
+
+          # Overwriting in place: same result, nothing left behind
+          cp -R "$B/src" "$B/inplace"
+          $tool batch "$B/inplace" "$B/inplace" --fill crossfade
+          test -z "$(ls "$B/inplace" | grep tmp-osiris || true)"
+          cmp "$B/inplace/02 Wide 24bit.wav" "$B/out2/02 Wide 24bit.wav"
+          cmp "$B/inplace/05 Serum 2048.wav" "$B/src/05 Serum 2048.wav"
+          echo "Batch checks passed"
 
       - name: Screenshots
         run: |
@@ -130,6 +184,8 @@ jobs:
           ls -la screenshots
           test -f screenshots/0-editor.png
           test -f screenshots/5-sdcard.png
+          test -f screenshots/6-batch.png
+          test -f screenshots/7-blank-waves.png
 
       - uses: actions/upload-artifact@v4
         with:

@@ -3,6 +3,7 @@
 /** Reading and writing Osiris SD cards and card projects. No UI code (the SD Card page lives in cardpage.cpp). */
 
 #include "osiriscard.hpp"
+#include "wtprocess.hpp"
 
 #include <string>
 #include <vector>
@@ -34,6 +35,8 @@ struct Card {
 	std::string fileNameFor(int bank, int slot) const;
 	/** Moves filled slots up so each bank is numbered 1..N with no gaps */
 	void closeGaps();
+	/** Blank waves in one slot (0 for an empty slot) */
+	wt::BlankReport blanks(int bank, int slot) const;
 };
 
 /** What to do with slots that aren't 32 waves */
@@ -73,7 +76,8 @@ struct ExportOptions {
 	Existing existing;
 	FixMode fix;
 	bool removeJunk; // delete macOS "._" and .DS_Store files from the Osiris folder afterwards
-	ExportOptions() : existing(BACKUP), fix(FIX_RESAMPLE), removeJunk(true) {}
+	bool cycle;      // apply the editor's Cycle to every wave on the way out
+	ExportOptions() : existing(BACKUP), fix(FIX_RESAMPLE), removeJunk(true), cycle(false) {}
 };
 
 struct ExportResult {

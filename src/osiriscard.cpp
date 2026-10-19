@@ -209,6 +209,11 @@ std::vector<Issue> checkLayout(const SlotInfo slots[BANKS][SLOTS], bool slotName
 			any = true;
 			if (slot.waveCount != WAVES)
 				issues.push_back(Issue{Issue::WAVE_COUNT, b, s, std::string(where) + " has " + std::to_string(slot.waveCount) + " waves, not 32"});
+			if (slot.blankWaves > 0) {
+				std::string text = (slot.blankWaves >= slot.waveCount) ? std::string(where) + " is completely silent"
+					: std::string(where) + " has " + std::to_string(slot.blankWaves) + (slot.blankWaves == 1 ? " blank wave" : " blank waves");
+				issues.push_back(Issue{Issue::BLANK_WAVES, b, s, text});
+			}
 			std::string key = sanitize(slot.name, "Wave");
 			for (char &c : key)
 				c = (char)tolower((unsigned char)c);

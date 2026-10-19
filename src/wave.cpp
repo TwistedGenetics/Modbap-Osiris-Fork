@@ -1,4 +1,5 @@
 #include "OsirisEdit.hpp"
+#include "wtprocess.hpp"
 #include <string.h>
 #include <sndfile.h>
 #include <iostream>
@@ -165,39 +166,12 @@ void Wave::updatePost() {
 		}
 	}
 
-	// Cycle
-	if (cycle) {
-		float start = out[0];
-		float end = out[WAVE_LEN - 1] / (WAVE_LEN - 1) * WAVE_LEN;
-
-		for (int i = 0; i < WAVE_LEN; i++) {
-			out[i] -= (end - start) * (i - WAVE_LEN / 2) / WAVE_LEN;
-		}
-	}
-
-	// Normalize
-	if (normalize) {
-		float max = -INFINITY;
-		float min = INFINITY;
-		for (int i = 0; i < WAVE_LEN; i++) {
-			if (out[i] > max) max = out[i];
-			if (out[i] < min) min = out[i];
-		}
-
-		if (max - min >= 1e-6) {
-			for (int i = 0; i < WAVE_LEN; i++) {
-				out[i] = rescalef(out[i], min, max, -1.0, 1.0);
-			}
-		}
-		else {
-			memset(out, 0, sizeof(float) * WAVE_LEN);
-		}
-	}
-
-	// Hard clip :(
-	for (int i = 0; i < WAVE_LEN; i++) {
-		out[i] = clampf(out[i], -1.0, 1.0);
-	}
+	// Cycle, Normalize and the hard clip are shared with batch processing (wtprocess.cpp)
+	if (cycle)
+		wt::cycleWave(out);
+	if (normalize)
+		wt::normalizeWave(out);
+	wt::clipWave(out);
 
 	// TODO Fix possible race condition with audio thread here
 	// Or not, because the race condition would only just replace samples as they are being read, which just gives a click sound.
