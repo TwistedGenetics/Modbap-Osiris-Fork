@@ -69,6 +69,7 @@ void typePicker() {
 		{gen::HOOVER, gen::STAB, gen::ACID, gen::TYPE_COUNT},
 		{gen::WARM, gen::GLASSY, gen::EVOLVING, gen::TYPE_COUNT},
 	};
+	static gen::Type lastInGroup[3] = {gen::REESE, gen::HOOVER, gen::WARM};
 	for (int g = 0; g < 3; g++) {
 		const char *labels[4];
 		int count = 0, selected = -1;
@@ -78,8 +79,22 @@ void typePicker() {
 				selected = count;
 			count++;
 		}
-		ImGui::AlignFirstTextHeightToWidgets();
-		ImGui::TextDisabled("%s", gen::groupName((gen::Group)g));
+		// The group name is clickable too: it picks the type last used in that group
+		if (selected >= 0)
+			lastInGroup[g] = groups[g][selected];
+		bool active = selected >= 0;
+		ImVec2 pos = ImGui::GetCursorScreenPos();
+		float rowHeight = ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2.f;
+		ImGui::PushID(g);
+		bool groupClicked = ImGui::InvisibleButton("##group", ImVec2(56.f, rowHeight));
+		ImGui::PopID();
+		bool hovered = ImGui::IsItemHovered();
+		const char *name = gen::groupName((gen::Group)g);
+		ImVec2 textSize = ImGui::CalcTextSize(name);
+		ImU32 col = active ? theme.accent : (hovered ? theme.text : theme.textDim);
+		ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x, pos.y + (rowHeight - textSize.y) * 0.5f), col, name);
+		if (groupClicked && !active)
+			setType(lastInGroup[g]);
 		ImGui::SameLine(70);
 		int before = selected;
 		char id[16];
