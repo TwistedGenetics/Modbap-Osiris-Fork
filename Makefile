@@ -42,6 +42,7 @@ else ifeq ($(ARCH),mac)
 	# libcurl is the one that ships with macOS.
 	BREW_PREFIX ?= $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
 	MACOS_MIN ?= 11.0
+	SDL3_DYLIB ?= $(shell brew --prefix sdl3 2>/dev/null)/lib/libSDL3.0.dylib
 	FLAGS += -DARCH_MAC -DGL_SILENCE_DEPRECATION \
 		-mmacosx-version-min=$(MACOS_MIN) \
 		-I$(BREW_PREFIX)/include -I$(BREW_PREFIX)/include/SDL2
@@ -115,6 +116,14 @@ else ifeq ($(ARCH),mac)
 		-d dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks \
 		-p @executable_path/../Frameworks/
 	otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
+	# Homebrew's sdl2 is sdl2-compat, which dlopen()s SDL3 at startup, so dylibbundler can't see it.
+	# sdl2-compat looks for libSDL3.dylib next to itself, so put a copy in Frameworks.
+	if [ -f "$(SDL3_DYLIB)" ]; then \
+		cp "$(SDL3_DYLIB)" dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/libSDL3.dylib && \
+		chmod u+w dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/libSDL3.dylib && \
+		install_name_tool -id @executable_path/../Frameworks/libSDL3.dylib dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/libSDL3.dylib && \
+		otool -L dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/libSDL3.dylib; \
+	fi
 	# arm64 code must be signed to run; ad-hoc signing is enough for local use
 	codesign --force --deep --sign - dist/OsirisEdit/OsirisEdit.app
 	codesign --verify --deep --strict dist/OsirisEdit/OsirisEdit.app

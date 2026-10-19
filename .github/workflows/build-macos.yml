@@ -19,7 +19,7 @@ jobs:
           submodules: recursive
 
       - name: Install dependencies
-        run: brew install sdl2 libsndfile libsamplerate jansson dylibbundler
+        run: brew install sdl2 sdl3 libsndfile libsamplerate jansson dylibbundler
 
       - name: Build
         run: make -j"$(sysctl -n hw.ncpu)"
@@ -38,6 +38,25 @@ jobs:
           # Fail if anything still points at Homebrew instead of the bundled copies
           ! otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit | grep -q /opt/homebrew
           ls dist/*.zip
+          # Nothing in the bundle may depend on Homebrew paths (the app must run on Macs without Homebrew)
+          for f in dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/*.dylib; do
+            if otool -L "$f" | tail -n +2 | grep -q /opt/homebrew; then echo "$f still links Homebrew"; otool -L "$f"; exit 1; fi
+          done
+          test -f dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks/libSDL3.dylib
+
+      - name: Smoke test (launch the app from the bundle)
+        run: |
+          # Hide Homebrew's lib folder so the app can only use what's bundled
+          sudo mv /opt/homebrew/lib /opt/homebrew/lib.hidden
+          sudo mv /opt/homebrew/opt /opt/homebrew/opt.hidden
+          ./dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit > smoke.log 2>&1 &
+          PID=$!
+          sleep 10
+          cat smoke.log
+          if kill -0 $PID 2>/dev/null; then echo "App is running"; kill $PID; else echo "App exited early"; exit 1; fi
+          if grep -qi "failed loading\|image not found\|Library not loaded" smoke.log; then exit 1; fi
+          sudo mv /opt/homebrew/lib.hidden /opt/homebrew/lib
+          sudo mv /opt/homebrew/opt.hidden /opt/homebrew/opt
 
       - uses: actions/upload-artifact@v4
         with:
