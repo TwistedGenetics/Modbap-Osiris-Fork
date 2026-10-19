@@ -7,4 +7,6 @@ OsirisEdit
 autosave.dat
 ui.dat
 !dep/Makefile
- 
+build/
+ci-logs/
+screenshots/

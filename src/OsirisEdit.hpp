@@ -303,6 +303,8 @@ void renderWaveMenu();
 void uiInit();
 void uiDestroy();
 void uiRender();
+/** Switches to a page by index (0 = waveform editor) */
+void uiSetPage(int page);
 /** Screenshot mode, used by CI. Call after ImGui::Render(). Returns true when every page has been saved. */
 struct SDL_Window;
 bool uiScreenshotStep(SDL_Window *window, const char *dir);
@@ -326,3 +328,12 @@ void dbPage();
 ////////////////////
 
 void importPage();
+
+////////////////////
+// cardpage.cpp
+////////////////////
+
+/** The SD Card page */
+void cardPage();
+/** Fills the SD Card page with example content (screenshot mode) */
+void cardPageDemo(const char *banksDir);

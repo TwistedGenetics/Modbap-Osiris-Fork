@@ -15,6 +15,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui_internal.h"
 #include "theme.hpp"
+#include "cardio.hpp"
 
 #include "osdialog/osdialog.h"
 
@@ -47,6 +48,7 @@ enum Page
 	GRID_PAGE,
 	WATERFALL_PAGE,
 	IMPORT_PAGE,
+	CARD_PAGE,
 	//DB_PAGE,
 	NUM_PAGES
 };
@@ -75,32 +77,6 @@ static ImVec4 alpha(ImVec4 col, float a)
 {
 	col.w *= a;
 	return col;
-}
-
-int createFolder(const char *path)
-{
-	char foldername[1024];
-	snprintf(foldername, sizeof(foldername), "\"%s\"", path);
-	std::string command = "mkdir ";
-	command += foldername;
-	return system(command.c_str());
-}
-
-int removeFolder(const char *path)
-{
-	char foldername[1024];
-	snprintf(foldername, sizeof(foldername), "\"%s\"", path);
-#if defined(ARCH_LIN) || defined(ARCH_MAC)
-	std::string command = "rm -r ";
-	command += foldername;
-	return system(command.c_str());
-#endif
-#ifdef ARCH_WIN
-	std::string command = "rmdir /s /q ";
-	command += foldername;
-	return system(command.c_str());
-#endif
-	return 1;
 }
 
 static ImTextureID loadImage(const char *filename)
@@ -537,7 +513,7 @@ void renderMenu()
 				menuSaveBankAs();
 			if (ImGui::MenuItem("Save Waves to Folder...", NULL))
 				menuSaveWaves();
-			if (ImGui::MenuItem("Convert", NULL))
+			if (ImGui::MenuItem("Convert Folder for Osiris...", NULL))
 				menuConvert();
 			if (ImGui::MenuItem("Quit", ImGui::GetIO().OSXBehaviors ? "Cmd+Q" : "Ctrl+Q"))
 				menuQuit();
@@ -613,219 +589,170 @@ void renderMenu()
 	}
 }
 
+/** Convert: turns a folder of WAV files into an Osiris card layout (Osiris/A..D, 32 files per bank).
+Uses the same naming, sorting and export code as the SD Card page. */
 void renderPopup()
 {
+	static char sourceDir[1024] = "";
+	static char destDir[1024] = "";
+	static char packName[48] = "Pack";
+	static int startBank = 0;
+	static int fixChoice = 0;
+	static int existingChoice = 0;
+	static std::vector<std::string> resultLines;
+	static bool resultOk = true;
+
 	if (showConvertPopup)
 	{
-		ImGui::OpenPopup("##convert");
+		ImGui::OpenPopup("Convert Folder for Osiris");
+		showConvertPopup = false;
+		resultLines.clear();
 	}
 
-	ImGui::SetNextWindowContentWidth(800.0);
-	if (ImGui::BeginPopupModal("##convert", NULL))
+	ImGui::SetNextWindowContentWidth(640.0);
+	if (!ImGui::BeginPopupModal("Convert Folder for Osiris", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		return;
+
+	ImGui::TextWrapped("Converts every WAV file in a folder into Osiris wavetables: 16-bit, 44.1 kHz mono, 32 waves each, "
+		"32 files per bank, named Osiris_<Bank>_<Pack>_<N>.wav. Files are taken in number order (2 before 10).");
+	ImGui::Dummy(ImVec2(0, 4));
+
+	// Source
+	ui::SectionHeading("Source folder");
+	ImGui::PushItemWidth(-110);
+	ImGui::InputText("##convertSource", sourceDir, sizeof(sourceDir));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	if (ImGui::Button("Browse...##source", ImVec2(100, 0)))
 	{
-		ImGui::PushItemWidth(-140.0);
-
-		// Header
-		ImGui::Text("SOURCE");
-		ImGui::Separator();
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		// Source Directory
-		static char sourceFilename[1024] = "";
-		ImGui::Text("Source:");
-		ImGui::SameLine();
-		ImGui::PushItemWidth(-70);
-		ImGui::InputText("", sourceFilename, sizeof(sourceFilename));
-		ImGui::SameLine();
-		if (ImGui::Button("Browse.."))
+		char *dir = getLastDir();
+		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir, NULL, NULL);
+		if (path)
 		{
-			char *dir = getLastDir();
-			char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir, NULL, NULL);
-			snprintf(sourceFilename, sizeof(sourceFilename), "%s", path);
+			snprintf(sourceDir, sizeof(sourceDir), "%s", path);
 			free(path);
-			free(dir);
 		}
-		ImGui::Dummy(ImVec2(0.0f, 15.0f));
-
-		// Convert Configuration Header
-		ImGui::Text("WAVE CONFIGURATION");
-		ImGui::Separator();
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		// Sample Rate
-		ImGui::Text("Sample Rate:");
-		ImGui::SameLine();
-		const char *sampleRates[] = {"8000", "11025", "16000", "22050", "32000", "44100", "48000", "88200", "96000"};
-		static int rate = 5;
-		ImGui::PushItemWidth(-1);
-		ImGui::Combo("##rate", &rate, sampleRates, IM_ARRAYSIZE(sampleRates));
-
-		// WAV Bit Depth
-		ImGui::Text("Bit Depth:  ");
-		ImGui::SameLine();
-		const char *bitDepths[] = {"8", "16", "32"};
-		static int depth = 1;
-		ImGui::Combo("##depth", &depth, bitDepths, IM_ARRAYSIZE(bitDepths));
-
-		// Wave Bank Length (Width * Height)
-		const char *bankSizes[] = {"16", "32", "64"};
-		static int sizes = 1;
-
-		ImGui::Text("Bank Length:");
-		ImGui::SameLine();
-		ImGui::Combo("##sizes", &sizes, bankSizes, IM_ARRAYSIZE(bankSizes));
-
-		// const char *bankSizesH[] = {"16", "32", "64"};
-		// const char *bankSizesW[] = {"16", "32", "64"};
-		// static int height = 1;
-		// static int width = 1;
-
-		// ImGui::Text("Bank Height:");
-		// ImGui::SameLine();
-		// ImGui::Combo("##height", &height, bankSizesW, IM_ARRAYSIZE(bankSizesW));
-
-		// ImGui::Dummy(ImVec2(0.0f, 5.0f));
-		// ImGui::Text("Bank Length (Max 2048): %d", std::min(width * height, 2048));
-		// ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		// Wave Length
-		const char *waveLengths[] = {"8", "16", "32", "64", "128", "256", "512", "1028", "2048"};
-		static int wavelength = 5;
-		ImGui::Text("Wave Length:");
-		ImGui::SameLine();
-		ImGui::Combo("##wavelength", &wavelength, waveLengths, IM_ARRAYSIZE(waveLengths));
-
-		// Destination Header
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-		ImGui::Text("DESTINATION");
-		ImGui::Separator();
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		// Destination Directory
-		static char convertFilename[1024] = "";
-		ImGui::Text("Directory:");
-		ImGui::SameLine();
-		ImGui::PushItemWidth(-70);
-		ImGui::InputText("", convertFilename, sizeof(convertFilename));
-		ImGui::SameLine();
-		if (ImGui::Button("Browse..##123"))
-		{
-			char *dir = getLastDir();
-			char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir, NULL, NULL);
-			snprintf(convertFilename, sizeof(convertFilename), "%s", path);
-			free(path);
-			free(dir);
-		}
-
-		// Selected Banks
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-		ImGui::Text("CREATE BANKS");
-		ImGui::Separator();
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		static bool createBanks;
-		ImGui::Text("Separate Into WavPak Banks A - D");
-		ImGui::SameLine();
-		ImGui::Checkbox("##createBanks", &createBanks);
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-		ImGui::Separator();
-		ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
-		bool error = depth < 0 || rate < 0 || wavelength < 0;
-		if (error)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
-			ImGui::Text("Must select bit depth, sample rate, wavelength, and a valid directory");
-			ImGui::PopStyleColor();
-		}
-		if (ImGui::Button("Convert"))
-		{
-			if (!error)
-			{
-				// Save Info
-				long bitData[] = {SF_FORMAT_PCM_S8, SF_FORMAT_PCM_16, SF_FORMAT_PCM_32};
-				SF_INFO info;
-				info.samplerate = atoi(sampleRates[rate]);
-				info.channels = 1;
-				info.format = SF_FORMAT_WAV | bitData[depth] | SF_ENDIAN_LITTLE;
-
-				// Make Folders
-				std::string osirisFolder = convertFilename;
-				osirisFolder += "/Osiris";
-				if (createFolder(osirisFolder.c_str()) != 0)
-				{
-					removeFolder(osirisFolder.c_str());
-					createFolder(osirisFolder.c_str());
-				}
-
-				// Convert the Source Files
-				Bank convertBank;
-				std::vector<std::string> sourceFiles;
-				DIR *dir;
-				dir = opendir(sourceFilename);
-				if (dir == NULL)
-				{
-					ImGui::EndPopup();
-					return;
-				}
-
-				// Read the source files
-				struct dirent *ent;
-				while ((ent = readdir(dir)) != NULL)
-					sourceFiles.push_back(ent->d_name);
-				closedir(dir);
-				sourceFiles.erase(std::find(sourceFiles.begin(), sourceFiles.end(), "."));
-				sourceFiles.erase(std::find(sourceFiles.begin(), sourceFiles.end(), ".."));
-				std::sort(sourceFiles.begin(), sourceFiles.end());
-
-				// Bitmask the source files.
-				int j = 0;
-				for (auto i = sourceFiles.begin(); i != sourceFiles.end(); i++)
-				{
-					if (i->rfind(".wav") != abs((int) i->size()-4)) {
-						continue;
-					}
-					if (createBanks && j >= BANK_LEN * 4)
-					{
-						break;
-					} // Convert all source files if createBanks is not selected.
-
-					if (createBanks)
-					{
-						int letterIndex = j / BANK_LEN;
-						std::string osirisExportFolder = convertFilename;
-						osirisExportFolder += "/Osiris/" + std::string(1, 'A' + letterIndex);
-						createFolder(osirisExportFolder.c_str());
-						std::string loadSourceFileName = sourceFilename;
-						loadSourceFileName += "/" + *i;
-						std::cout << loadSourceFileName << " " << osirisExportFolder + "/Osiris_" + *i << bankSizes[sizes] << "\n";
-						convertBank.loadWAV(loadSourceFileName.c_str());
-						convertBank.saveWAV((osirisExportFolder + "/Osiris_" + *i).c_str(), info, atoi(bankSizes[sizes]), atoi(waveLengths[wavelength]));
-					}
-					else
-					{
-						std::string osirisExportFolder = convertFilename;
-						osirisExportFolder += "/Osiris";
-						std::string loadSourceFileName = sourceFilename;
-						loadSourceFileName += "/" + *i;
-						std::cout << loadSourceFileName << " " << osirisExportFolder + "/Osiris_" + *i << "\n";
-						convertBank.loadWAV(loadSourceFileName.c_str());
-						convertBank.saveWAV((osirisExportFolder + "/Osiris_" + *i).c_str(), info, atoi(bankSizes[sizes]), atoi(waveLengths[wavelength]));
-					}
-					j++;
-				}
-				ImGui::CloseCurrentPopup();
-				showConvertPopup = false;
-			}
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel"))
-		{
-			ImGui::CloseCurrentPopup();
-			showConvertPopup = false;
-		}
-		ImGui::EndPopup();
+		free(dir);
 	}
+	std::vector<std::string> files;
+	if (sourceDir[0])
+		files = osiris::listWavFiles(sourceDir);
+	int fit = (int)osiris::planBanks((int)files.size(), startBank).size();
+	if (sourceDir[0])
+	{
+		if (files.empty())
+			ImGui::TextDisabled("No WAV files in that folder");
+		else
+		{
+			std::string from = std::string(1, osiris::bankLetter(startBank)) + "1";
+			std::vector<osiris::Position> plan = osiris::planBanks(fit, startBank);
+			std::string to = std::string(1, osiris::bankLetter(plan.back().bank)) + std::to_string(plan.back().slot + 1);
+			ImGui::TextDisabled("%d WAV files, going into %s to %s", (int)files.size(), from.c_str(), to.c_str());
+			if (fit < (int)files.size())
+				ImGui::TextColored(ImVec4(0.96f, 0.71f, 0.29f, 1.f), "%d files won't fit (a card holds 32 per bank)", (int)files.size() - fit);
+		}
+	}
+
+	// Naming
+	ui::SectionHeading("Naming");
+	ImGui::AlignFirstTextHeightToWidgets();
+	ImGui::Text("Pack name");
+	ImGui::SameLine(110);
+	ImGui::PushItemWidth(220);
+	ImGui::InputText("##convertPack", packName, sizeof(packName));
+	ImGui::PopItemWidth();
+	ImGui::SameLine(0, 24);
+	ImGui::AlignFirstTextHeightToWidgets();
+	ImGui::Text("Start at bank");
+	ImGui::SameLine();
+	ImGui::PushItemWidth(70);
+	ImGui::Combo("##convertBank", &startBank, "A\0B\0C\0D\0\0");
+	ImGui::PopItemWidth();
+	ImGui::TextDisabled("First file: %s", osiris::fileName(startBank, packName, "", 1, false).c_str());
+
+	ImGui::AlignFirstTextHeightToWidgets();
+	ImGui::Text("Files that aren't 32 waves:");
+	ImGui::SameLine();
+	ImGui::RadioButton("Resample##convert", &fixChoice, 0);
+	ImGui::SameLine();
+	ImGui::RadioButton("Pad / trim##convert", &fixChoice, 1);
+
+	// Destination
+	ui::SectionHeading("Destination (SD card or folder)");
+	std::vector<std::string> volumes = osiris::listVolumes();
+	for (const std::string &v : volumes)
+	{
+		if (ImGui::RadioButton(v.c_str(), std::string(destDir) == v))
+			snprintf(destDir, sizeof(destDir), "%s", v.c_str());
+	}
+	ImGui::PushItemWidth(-110);
+	ImGui::InputText("##convertDest", destDir, sizeof(destDir));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	if (ImGui::Button("Browse...##dest", ImVec2(100, 0)))
+	{
+		char *dir = getLastDir();
+		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir, NULL, NULL);
+		if (path)
+		{
+			snprintf(destDir, sizeof(destDir), "%s", path);
+			free(path);
+		}
+		free(dir);
+	}
+	if (destDir[0])
+	{
+		std::string dest = destDir;
+		std::string base = dest.substr(dest.find_last_of('/') + 1);
+		bool isOsiris = (base == "Osiris" || base == "osiris" || base == "OSIRIS");
+		std::string osirisPath = isOsiris ? dest : dest + "/Osiris";
+		ImGui::TextDisabled("Files go to %s/A, B, C, D", osirisPath.c_str());
+		if (osiris::directoryExists(osirisPath))
+		{
+			ImGui::Text("There's already an Osiris folder here:");
+			ImGui::RadioButton("Back it up first, then write a fresh one (recommended)##convert", &existingChoice, 0);
+			ImGui::RadioButton("Merge, moving only the files being replaced into a backup folder##convert", &existingChoice, 1);
+		}
+	}
+
+	// Result of the last conversion
+	for (const std::string &line : resultLines)
+	{
+		if (resultOk)
+			ImGui::TextWrapped("%s", line.c_str());
+		else
+			ImGui::TextColored(ImVec4(0.96f, 0.71f, 0.29f, 1.f), "%s", line.c_str());
+	}
+
+	ImGui::Dummy(ImVec2(0, 4));
+	bool ready = !files.empty() && destDir[0];
+	if (ready && ImGui::Button("Convert", ImVec2(120, 0)))
+	{
+		osiris::Card card;
+		for (int b = 0; b < osiris::BANKS; b++)
+			card.pack[b] = packName;
+		std::vector<std::string> messages;
+		osiris::fillFromFiles(card, files, startBank, 0, messages);
+		osiris::ExportOptions options;
+		options.existing = existingChoice == 1 ? osiris::ExportOptions::MERGE : osiris::ExportOptions::BACKUP;
+		options.fix = fixChoice == 1 ? osiris::FIX_PAD : osiris::FIX_RESAMPLE;
+		osiris::ExportResult r = osiris::exportCard(card, destDir, options);
+		resultOk = r.ok;
+		resultLines.clear();
+		resultLines.push_back("Wrote " + std::to_string(r.written) + " files to " + r.osirisPath +
+			" (A " + std::to_string(r.perBank[0]) + ", B " + std::to_string(r.perBank[1]) + ", C " + std::to_string(r.perBank[2]) + ", D " + std::to_string(r.perBank[3]) + ")");
+		if (!r.backupPath.empty())
+			resultLines.push_back("Previous files backed up to " + r.backupPath);
+		for (const std::string &m : messages)
+			resultLines.push_back(m);
+		for (const std::string &e : r.errors)
+			resultLines.push_back(e);
+	}
+	if (ready)
+		ImGui::SameLine();
+	if (ImGui::Button(resultLines.empty() ? "Cancel" : "Close", ImVec2(120, 0)))
+		ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
 }
 
 void renderPreview()
@@ -915,8 +842,8 @@ void editorPage()
 		float headingHeight = (theme.fontHeading ? theme.fontHeading->FontSize * ImGui::GetIO().FontGlobalScale : 12.f) + ImGui::GetStyle().ItemSpacing.y * 2.f + 2.f;
 		float fixedHeight = lineHeight * (2 + (EFFECTS_LEN + 1) / 2) + headingHeight * 3.f + ImGui::GetStyle().ItemSpacing.y * 3.f + 6.f;
 		float graphHeight = ImGui::GetContentRegionAvail().y - fixedHeight;
-		float waveHeight = fmaxf(160.f, graphHeight * 0.6f);
-		float harmonicsHeight = fmaxf(100.f, graphHeight * 0.4f);
+		float waveHeight = fmaxf(110.f, graphHeight * 0.6f);
+		float harmonicsHeight = fmaxf(70.f, graphHeight * 0.4f);
 
 		ImGui::PushItemWidth(-1);
 
@@ -1232,7 +1159,8 @@ void renderMain()
 				"Effect Editor",
 				"Grid XY View",
 				"Waterfall View",
-				"Import"};
+				"Import",
+				"SD Card"};
 			ui::Tabs(tabLabels, NUM_PAGES, (int *)&currentPage);
 		}
 
@@ -1256,6 +1184,9 @@ void renderMain()
 			break;
 		case IMPORT_PAGE:
 			importPage();
+			break;
+		case CARD_PAGE:
+			cardPage();
 			break;
 		/*case DB_PAGE:
 			dbPage();
@@ -1706,9 +1637,15 @@ void uiRender()
 	renderMain();
 }
 
+void uiSetPage(int page)
+{
+	if (page >= 0 && page < NUM_PAGES)
+		currentPage = (Page)page;
+}
+
 bool uiScreenshotStep(SDL_Window *window, const char *dir)
 {
-	static const char *pageNames[NUM_PAGES] = {"editor", "effects", "grid", "waterfall", "import"};
+	static const char *pageNames[NUM_PAGES] = {"editor", "effects", "grid", "waterfall", "import", "sdcard"};
 	static int frame = 0;
 	static int page = 0;
 	// Give each page a few frames to settle (fonts, layout, audio thread)

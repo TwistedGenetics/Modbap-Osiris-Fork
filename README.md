@@ -6,6 +6,15 @@ This fork adds a native Apple Silicon (arm64) build for macOS 11 and later, and 
 
 ![OsirisEdit waveform editor](https://raw.githubusercontent.com/TwistedGenetics/Modbap-Osiris-Fork/screenshots/0-editor.png)
 
+### SD Card page
+
+Lay out a whole Osiris card on the **SD Card** tab: four banks (A to D) of 32 wavetables, filled from the editor, WAV files or whole folders, reordered by drag and drop. **Export to SD Card** writes the layout the Osiris expects:
+
+	<card>/Osiris/A, B, C, D
+	Osiris_<Bank>_<PackName>_<1-32>.wav    16-bit, 44.1 kHz, mono, 32 waves of 256 samples
+
+An existing Osiris folder is never deleted: it's backed up to `Osiris_backup_<date-time>` first (or merged, with replaced files moved to a backup). macOS `._` and `.DS_Store` files are cleaned off the card afterwards. **Open SD Card** reads a card back in, and layouts can be saved as `.osiriscard` project files. **File > Convert Folder for Osiris** turns a folder of WAVs into the same layout in one go.
+
 ### Download (Apple Silicon Mac)
 
 Grab the latest `OsirisEdit-*-mac-arm64.zip` from the Releases page, or from the artifacts of the latest "Build macOS (Apple Silicon)" run on the Actions tab.

@@ -1,6 +1,7 @@
 #include "OsirisEdit.hpp"
 
 #include <time.h>
+#include <libgen.h>
 
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -91,10 +92,17 @@ int main(int argc, char **argv) {
 		// Show a wave with some character
 		selectedId = lastSelectedId = 18;
 		morphZ = 18.0;
+		// Example SD card layout, using the factory banks' folder
+		char banksDir[1024];
+		snprintf(banksDir, sizeof(banksDir), "%s", bankPath ? bankPath : "banks/ROM A.wav");
+		cardPageDemo(dirname(banksDir));
 	}
 	else
 		currentBank.load("autosave.dat");
 	historyPush();
+	// OSIRIS_DEMO_CARD=<folder of WAVs>: start with the example SD card layout (used for testing)
+	if (!screenshotDir && getenv("OSIRIS_DEMO_CARD"))
+		cardPageDemo(getenv("OSIRIS_DEMO_CARD"));
 	catalogInit();
 	audioInit();
 	//dbInit();

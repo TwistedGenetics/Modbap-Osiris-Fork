@@ -24,6 +24,15 @@ jobs:
       - name: Build
         run: make -j"$(sysctl -n hw.ncpu)"
 
+      - name: Card naming tests
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          make test 2>&1 | tee ci-logs/card-tests.log
+
+      - name: Build card tool
+        run: make cardtool
+
       - name: Check architecture
         run: |
           file OsirisEdit
@@ -58,6 +67,61 @@ jobs:
           sudo mv /opt/homebrew/lib.hidden /opt/homebrew/lib
           sudo mv /opt/homebrew/opt.hidden /opt/homebrew/opt
 
+      - name: Test SD card export
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/card-export.log) 2>&1
+          T="$RUNNER_TEMP/card"
+          rm -rf "$T" && mkdir -p "$T"
+          tool=./build/osiris-card-tool
+
+          # Export a card from the factory banks and catalog (47 files: bank A full, the rest in B)
+          $tool export "$T" "CI Test" banks catalog/00Digital catalog/01Analog catalog/02FM catalog/03Glitch
+          $tool verify "$T"
+
+          # Folder tree: Osiris/A..D, 32 files in A
+          for b in A B C D; do test -d "$T/Osiris/$b"; done
+          test "$(ls "$T/Osiris/A" | wc -l | tr -d ' ')" -eq 32
+          test "$(ls "$T/Osiris/B" | wc -l | tr -d ' ')" -eq 15
+
+          # Every file: name pattern, and format checked independently with Apple's afinfo
+          n=0
+          for f in "$T"/Osiris/*/*.wav; do
+            name=$(basename "$f"); bank=$(basename "$(dirname "$f")")
+            echo "$name" | grep -Eq "^Osiris_${bank}_[A-Za-z0-9_-]+_([1-9]|[12][0-9]|3[0-2])\.wav$" || { echo "bad name: $bank/$name"; exit 1; }
+            test ${#name} -lt 64 || { echo "name too long: $name"; exit 1; }
+            info=$(afinfo "$f")
+            if [ $n -eq 0 ]; then echo "$info"; fi
+            echo "$info" | grep -Eq "1 ch, +44100 Hz" || { echo "$name is not mono 44.1 kHz"; echo "$info"; exit 1; }
+            echo "$info" | grep -Eq "16-bit|Int16" || { echo "$name is not 16-bit"; echo "$info"; exit 1; }
+            echo "$info" | grep -Eq "audio packets: 8192|8192 valid frames" || { echo "$name is not 8192 samples (32 x 256)"; echo "$info"; exit 1; }
+            n=$((n+1))
+          done
+          echo "afinfo checked $n files"
+          test $n -eq 47
+
+          # Existing folder: back up by default, merge moves replaced files into a new backup, cancel touches nothing
+          $tool export "$T" "Second" banks
+          test "$(ls -d "$T"/Osiris_backup_* | wc -l | tr -d ' ')" -eq 1
+          test "$(ls "$T"/Osiris_backup_*/A | wc -l | tr -d ' ')" -eq 32
+          $tool export "$T" "Third" banks --merge
+          test "$(ls -d "$T"/Osiris_backup_* | wc -l | tr -d ' ')" -eq 2
+          rc=0; $tool export "$T" "Fourth" banks --cancel || rc=$?
+          test $rc -eq 3
+          ls "$T/Osiris/A"
+          $tool verify "$T"
+
+          # No macOS junk left behind
+          touch "$T/Osiris/A/._junk.wav" "$T/Osiris/.DS_Store"
+          $tool export "$T" "Fifth" banks --merge
+          test -z "$(find "$T/Osiris" -name '._*' -o -name '.DS_Store')"
+
+          # Read the card back, and round-trip a card project
+          $tool open "$T"
+          $tool project-roundtrip banks catalog/02FM
+          echo "SD card export checks passed"
+
       - name: Screenshots
         run: |
           mkdir -p screenshots
@@ -65,6 +129,7 @@ jobs:
           OSIRIS_SCREENSHOTS="$PWD/screenshots" OSIRIS_SCREENSHOT_BANK="$PWD/banks/ROM A.wav" perl -e 'alarm 120; exec @ARGV' ./dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
           ls -la screenshots
           test -f screenshots/0-editor.png
+          test -f screenshots/5-sdcard.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -104,3 +169,15 @@ jobs:
 
             Or right-click the app, choose Open, and confirm.
           files: dist/*.zip
+
+      - name: Publish logs on failure
+        if: failure() && github.event_name == 'push'
+        run: |
+          mkdir -p ci-logs
+          cd ci-logs
+          git init -q -b ci-logs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Logs from failed build of ${GITHUB_SHA::7}" --allow-empty
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-logs

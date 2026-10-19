@@ -1,7 +1,7 @@
 VERSION = 1.1
 
 FLAGS = -Wall -Wextra -Wno-unused-parameter -g -Wno-unused -O3 -ffast-math -fno-finite-math-only \
-	-DVERSION=$(VERSION) -DPFFFT_SIMD_DISABLE -DImDrawIdx=ImU32 \
+	-DVERSION=$(VERSION) -DPFFFT_SIMD_DISABLE \
 	-I. -Iext -Iext/imgui -Idep/include -Idep/include/SDL2
 CFLAGS =
 CXXFLAGS = -std=c++11
@@ -86,7 +86,25 @@ OsirisEdit: $(OBJECTS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 clean:
-	rm -frv $(OBJECTS) OsirisEdit dist
+	rm -frv $(OBJECTS) OsirisEdit dist build/card_test build/osiris-card-tool
+
+
+# SD card naming/sorting tests (no UI, no libraries needed)
+.PHONY: test
+test: build/card_test
+	./build/card_test
+
+build/card_test: tests/card_test.cpp src/osiriscard.cpp src/osiriscard.hpp
+	@mkdir -p build
+	$(CXX) -std=c++11 -Wall -Wextra -O1 -Isrc -o $@ tests/card_test.cpp src/osiriscard.cpp
+
+# Command-line card tool, used by CI to export and verify a test card
+.PHONY: cardtool
+cardtool: build/osiris-card-tool
+
+build/osiris-card-tool: tools/osiris_card_tool.cpp src/cardio.cpp src/cardio.hpp src/osiriscard.cpp src/osiriscard.hpp
+	@mkdir -p build
+	$(CXX) $(FLAGS) $(CXXFLAGS) -Isrc -o $@ tools/osiris_card_tool.cpp src/cardio.cpp src/osiriscard.cpp $(LDFLAGS)
 
 
 .PHONY: dist
