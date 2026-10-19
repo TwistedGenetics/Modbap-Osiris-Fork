@@ -62,7 +62,7 @@ jobs:
         run: |
           mkdir -p screenshots
           # Screenshot mode saves a PNG of every page and quits; perl's alarm is a timeout in case it hangs
-          OSIRIS_SCREENSHOTS="$PWD/screenshots" perl -e 'alarm 120; exec @ARGV' ./dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
+          OSIRIS_SCREENSHOTS="$PWD/screenshots" OSIRIS_SCREENSHOT_BANK="$PWD/banks/ROM A.wav" perl -e 'alarm 120; exec @ARGV' ./dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
           ls -la screenshots
           test -f screenshots/0-editor.png
 

@@ -84,8 +84,14 @@ int main(int argc, char **argv) {
 	// Initialize modules
 	uiInit();
 	historyClear();
-	if (screenshotDir)
-		currentBank.loadWAV("banks/ROM A.wav");
+	if (screenshotDir) {
+		// OSIRIS_SCREENSHOT_BANK overrides the bank (the factory banks sit outside the Mac app bundle)
+		const char *bankPath = getenv("OSIRIS_SCREENSHOT_BANK");
+		currentBank.loadWAV(bankPath ? bankPath : "banks/ROM A.wav");
+		// Show a wave with some character
+		selectedId = lastSelectedId = 18;
+		morphZ = 18.0;
+	}
 	else
 		currentBank.load("autosave.dat");
 	historyPush();
