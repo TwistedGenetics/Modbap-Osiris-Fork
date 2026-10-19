@@ -1718,7 +1718,7 @@ void uiSetPage(int page)
 
 bool uiScreenshotStep(SDL_Window *window, const char *dir)
 {
-	static const char *pageNames[NUM_PAGES + 4] = {"editor", "effects", "grid", "waterfall", "import", "sdcard", "batch", "blank-waves", "keyframe-morph", "generator"};
+	static const char *pageNames[NUM_PAGES + 5] = {"editor", "effects", "grid", "waterfall", "import", "sdcard", "batch", "blank-waves", "keyframe-morph", "generator", "mutate-breed"};
 	static int frame = 0;
 	static int page = 0;
 	// Give each page a few frames to settle (fonts, layout, audio thread)
@@ -1745,7 +1745,7 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir)
 
 	frame = 0;
 	page++;
-	if (page >= NUM_PAGES + 4)
+	if (page >= NUM_PAGES + 5)
 		return true;
 	if (page < NUM_PAGES)
 	{
@@ -1787,6 +1787,11 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir)
 	{
 		morphCloseDialog();
 		genOpenDialog();
+	}
+	else if (page == NUM_PAGES + 4)
+	{
+		// Mutate & Breed, on top of the generator
+		genOpenMutateDialog();
 	}
 	else
 	{

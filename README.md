@@ -29,7 +29,20 @@ Mark waves as keyframes (select a wave and press **K**, or right-click > **Keyfr
 
 ### Generate wavetables (drum & bass / jungle)
 
-**Generate...** builds tables from recipes: bass (Sub, Reese, Neuro, Wobble), leads (Hoover, Stab, Acid) and pads (Warm, Glassy, Evolving), with Brightness, Movement, Grit, Keyframes, morph type and a seed. The same seed and settings always give the same table (named like `Reese_0427`). Press Play in the dialog to audition it, then **Use in Editor** (keyframes are marked so you can re-morph it) or **Add Tables** to fill the next free slots on the SD Card page. Every wave is built from harmonics 1-127, so it's band-limited, has no DC and loops seamlessly, and every wave has the same peak. On bass tables the fundamental stays the loudest harmonic with the same phase on every wave, so the sub never thins out as the table morphs.
+**Generate...** builds tables from recipes:
+
+- **Bass:** Sub, Reese, Neuro, Wobble, Talking (walks through the vowels like it's saying a word)
+- **Lead:** Hoover, Stab, Acid, Bell (two-operator FM), Pluck (plucked string), Sync (hard-sync sweep), Fold (wavefolder)
+- **Pad:** Warm, Glassy, Evolving, Choir (singing vowels), Strings (detuned saw ensemble)
+
+Shape them with Brightness, Movement, Grit, Keyframes, morph type and a seed. The same seed and settings always give the same table (named like `Reese_0427`). Press Play in the dialog to audition it, then **Use in Editor** (keyframes are marked so you can re-morph it) or **Add Tables** to fill the next free slots on the SD Card page.
+
+- **Motion** sets how the table moves through its keyframes: **Sweep** (first to last), **Ping-pong** (out and back, so wave 32 leads straight back into wave 1: loops cleanly with an LFO on Morph Z), **Stepped** (holds each keyframe for a block of waves, for rhythmic jumps when Morph Z is sequenced) or **Random walk**.
+- **Vintage** adds old-sampler character: **S950** (12-bit, softly filtered), **SP-1200** (12-bit, lower rate, unfiltered) or **Crush** (8-bit, very low rate). These let aliasing through on purpose; the steps are centred on the loop point, so the loop still never clicks. The name gets a suffix, like `Reese_0427_SP1200`.
+- **From my waves** starts the table on the editor's marked keyframes (or the selected wave) and turns into the chosen type by the end; **Into type** sets how far.
+- **Mutate & Breed...** shows six variations of the current table. Click one to hear it, **Keep** it to carry on mutating from there, or pick two and **Breed** them (each of the recipe's random choices comes from one parent or the other). **Mutation** sets how far the variations stray: small amounts fine-tune, big ones can flip choices like an FM ratio. Mutated tables are named by generation, like `Reese_0427_g3`.
+
+Without vintage, every wave is built from harmonics 1-127, so it's band-limited, has no DC and loops seamlessly, and every wave has the same peak. On bass tables the fundamental stays the loudest harmonic with the same phase on every wave, so the sub never thins out as the table morphs.
 
 ### Download (Apple Silicon Mac)
 

@@ -379,6 +379,8 @@ void morphRenderDialog();
 void genOpenDialog();
 void genCloseDialog();
 void genRenderDialog();
+/** Opens Mutate & Breed on top of the open generator dialog (screenshots) */
+void genOpenMutateDialog();
 
 ////////////////////
 // batchpage.cpp

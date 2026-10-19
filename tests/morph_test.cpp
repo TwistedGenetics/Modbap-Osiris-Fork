@@ -1,6 +1,7 @@
 // Tests for Morph Between Keyframes (src/wtprocess.cpp, src/keyframes.cpp) and the wavetable generator
 // (src/generator.cpp). Build and run with: make test
 
+#include <algorithm>
 #include "OsirisEdit.hpp"
 #include "generator.hpp"
 #include "keyframes.hpp"
@@ -242,6 +243,190 @@ static void testLoopCheckCatchesClicks() {
 	CHECK(a.worstNyquist > 1e-3f && b.worstNyquist > 1e-4f); // and they aren't band-limited either
 }
 
+/** Two band-limited waves to start from: a sine with some 3rd and 5th, and a softened saw */
+static std::vector<float> testSource(uint32_t seed) {
+	std::vector<float> s(2 * WAVE_LEN);
+	for (int i = 0; i < WAVE_LEN; i++) {
+		float th = 2.f * PI * i / WAVE_LEN;
+		s[i] = sinf(th) + 0.3f * sinf(3.f * th + seed) + 0.1f * sinf(5.f * th);
+		float saw = 0.f;
+		for (int k = 1; k < 40; k++)
+			saw += sinf(k * th) / k;
+		s[WAVE_LEN + i] = 0.5f * saw;
+	}
+	return s;
+}
+
+static float waveDistance(const float *a, const float *b) {
+	float sum = 0.f;
+	for (int i = 0; i < WAVE_LEN; i++)
+		sum += (a[i] - b[i]) * (a[i] - b[i]);
+	return sqrtf(sum / WAVE_LEN);
+}
+
+static float tableDistance(const std::vector<float> &a, const std::vector<float> &b) {
+	float sum = 0.f;
+	int waves = (int)a.size() / WAVE_LEN;
+	for (int w = 0; w < waves; w++)
+		sum += waveDistance(&a[w * WAVE_LEN], &b[w * WAVE_LEN]);
+	return sum / waves;
+}
+
+/** How different two tables sound: the average difference in harmonic levels (phase doesn't change the sound) */
+static float soundDistance(const std::vector<float> &a, const std::vector<float> &b) {
+	float sum = 0.f;
+	int waves = (int)a.size() / WAVE_LEN;
+	float ampA[WAVE_LEN / 2 + 1], ampB[WAVE_LEN / 2 + 1], ph[WAVE_LEN / 2 + 1];
+	for (int w = 0; w < waves; w++) {
+		gen::analyse(&a[w * WAVE_LEN], ampA, ph);
+		gen::analyse(&b[w * WAVE_LEN], ampB, ph);
+		float d = 0.f;
+		for (int k = 1; k < WAVE_LEN / 2; k++)
+			d += fabsf(ampA[k] - ampB[k]);
+		sum += d;
+	}
+	return sum / waves;
+}
+
+static void testGeneratorOptions() {
+	// Types: every one has a name, a group and a place in the dialog
+	int listed = 0;
+	for (int g = 0; g < 3; g++)
+		for (gen::Type t : gen::typesIn((gen::Group)g)) {
+			CHECK(gen::typeGroup(t) == g);
+			listed++;
+		}
+	CHECK(listed == gen::TYPE_COUNT);
+	CHECK(gen::isBass(gen::TALKING) && gen::typeGroup(gen::SYNC) == gen::LEAD && gen::typeGroup(gen::CHOIR) == gen::PAD);
+
+	// Ping-pong: goes out and back, so the last wave is close to the first and the middle is the far keyframe
+	gen::Params p = gen::defaults(gen::HOOVER);
+	p.motion = gen::PING_PONG;
+	std::vector<float> t = gen::generate(p);
+	CHECK(waveDistance(&t[31 * WAVE_LEN], &t[0]) < 0.5f * waveDistance(&t[16 * WAVE_LEN], &t[0]));
+	std::vector<int> keys = gen::keyframePositions(p);
+	CHECK(!keys.empty() && keys.front() == 0 && std::find(keys.begin(), keys.end(), 16) != keys.end());
+	for (int w = 1; w < 16; w++) // symmetric: wave 16 + n matches wave 16 - n
+		CHECK(waveDistance(&t[(16 + w) * WAVE_LEN], &t[(16 - w) * WAVE_LEN]) < 1e-4f);
+	// Every keyframe sits on a whole wave, out and back: 4 keyframes on 0, 5, 11, 16 and back on 21, 27
+	CHECK((int)keys.size() == 2 * p.keyframes - 2);
+	for (size_t i = 1; i < keys.size(); i++)
+		CHECK(keys[i] > keys[i - 1]);
+
+	// Stepped: each keyframe held for a block of identical waves, then a jump
+	p = gen::defaults(gen::STAB);
+	p.motion = gen::STEPPED;
+	p.keyframes = 4;
+	t = gen::generate(p);
+	for (int w = 1; w < 32; w++) {
+		float d = waveDistance(&t[w * WAVE_LEN], &t[(w - 1) * WAVE_LEN]);
+		CHECK(w % 8 == 0 ? d > 1e-3f : d < 1e-6f);
+	}
+	CHECK(gen::keyframePositions(p).empty());
+
+	// Random walk: deterministic, visits both ends, differs from the sweep
+	p = gen::defaults(gen::EVOLVING);
+	p.motion = gen::RANDOM_WALK;
+	CHECK(gen::generate(p) == gen::generate(p));
+	gen::Params sweep = p;
+	sweep.motion = gen::SWEEP;
+	CHECK(gen::generate(p) != gen::generate(sweep));
+
+	// Start from my waves: with none of the type mixed in, every wave is the user's wave (scaled to the peak)
+	p = gen::defaults(gen::WARM);
+	std::vector<float> src = testSource(3);
+	p.source.assign(src.begin(), src.begin() + WAVE_LEN);
+	p.sourceMix = 0.f;
+	t = gen::generate(p);
+	float peak = 0.f;
+	for (int i = 0; i < WAVE_LEN; i++)
+		peak = fmaxf(peak, fabsf(src[i]));
+	std::vector<float> expected(WAVE_LEN);
+	for (int i = 0; i < WAVE_LEN; i++)
+		expected[i] = src[i] * gen::PEAK / peak;
+	CHECK(waveDistance(&t[0], expected.data()) < 1e-3f);
+	CHECK(waveDistance(&t[31 * WAVE_LEN], expected.data()) < 1e-3f);
+	// Mixed in fully: starts on the user's wave, ends on the type's sound
+	p.sourceMix = 1.f;
+	t = gen::generate(p);
+	gen::Params plain = gen::defaults(gen::WARM);
+	std::vector<float> typeOnly = gen::generate(plain);
+	CHECK(waveDistance(&t[0], expected.data()) < 1e-3f);
+	CHECK(waveDistance(&t[31 * WAVE_LEN], &typeOnly[31 * WAVE_LEN]) < 1e-3f);
+	// A blank source is ignored
+	p.source.assign(WAVE_LEN, 0.f);
+	CHECK(gen::generate(p) == typeOnly);
+
+	// Mutate: deterministic, a new generation, and a small change compared with a different seed
+	float mutationDistance = 0.f, seedDistance = 0.f;
+	for (int ty = 0; ty < gen::TYPE_COUNT; ty++) {
+		gen::Params parent = gen::defaults((gen::Type)ty);
+		std::vector<float> a = gen::generate(parent);
+		gen::Params child = gen::mutate(parent, 0.3f, 11);
+		CHECK(gen::sameParams(child, gen::mutate(parent, 0.3f, 11)));
+		CHECK(child.generation == 1 && child.type == parent.type && child.seed == parent.seed);
+		mutationDistance += soundDistance(a, gen::generate(child));
+		gen::Params other = parent;
+		other.seed = 9000 + ty;
+		seedDistance += soundDistance(a, gen::generate(other));
+		// No change at amount 0, and breeding a table with itself gives it back
+		gen::Params same = gen::mutate(parent, 0.f, 5);
+		CHECK(gen::generate(same) == a);
+		gen::Params selfChild = gen::breed(parent, parent, 0.f, 9);
+		CHECK(gen::generate(selfChild) == a);
+	}
+	printf("mutation changes a table %.3f on average, a new seed %.3f\n", mutationDistance / gen::TYPE_COUNT, seedDistance / gen::TYPE_COUNT);
+	CHECK(mutationDistance < 0.6f * seedDistance);
+	// More amount, more change
+	float gentle = 0.f, wild = 0.f;
+	for (int ty = 0; ty < gen::TYPE_COUNT; ty++) {
+		gen::Params parent = gen::defaults((gen::Type)ty);
+		std::vector<float> a = gen::generate(parent);
+		gentle += soundDistance(a, gen::generate(gen::mutate(parent, 0.1f, 21)));
+		wild += soundDistance(a, gen::generate(gen::mutate(parent, 1.f, 21)));
+	}
+	CHECK(gentle < wild);
+	CHECK(mutationDistance > 0.f);
+	// A child of two parents takes after both
+	gen::Params pa = gen::mutate(gen::defaults(gen::REESE), 0.8f, 1), pb = gen::mutate(gen::defaults(gen::REESE), 0.8f, 2);
+	std::vector<float> ta = gen::generate(pa), tb = gen::generate(pb), tc = gen::generate(gen::breed(pa, pb, 0.2f, 3));
+	CHECK(tc != ta && tc != tb);
+	CHECK(gen::breed(pa, pb, 0.2f, 3).generation == 2);
+
+	// Names
+	p = gen::defaults(gen::SYNC);
+	p.seed = 42;
+	CHECK(gen::tableName(p) == "Sync_0042");
+	p.generation = 3;
+	p.vintage = gen::SP1200;
+	CHECK(gen::tableName(p) == "Sync_0042_g3_SP1200");
+
+	// Vintage: aliasing is allowed on purpose, every other rule still holds
+	uint32_t seeds[] = {1, 427, 9999};
+	for (int v = gen::S950; v < gen::VINTAGE_COUNT; v++) {
+		RuleReport r;
+		bool changed = true;
+		for (int ty = 0; ty < gen::TYPE_COUNT; ty++)
+			for (uint32_t seed : seeds) {
+				gen::Params q = gen::defaults((gen::Type)ty);
+				q.seed = seed;
+				std::vector<float> clean = gen::generate(q);
+				q.vintage = (gen::Vintage)v;
+				std::vector<float> old = gen::generate(q);
+				changed = changed && old != clean;
+				checkRules(old, q.waves, gen::isBass(q.type), r);
+			}
+		bool ok = check(changed, "vintage changes the table", __LINE__);
+		ok &= check(r.worstDc < 2e-3f, "vintage: no DC offset", __LINE__);
+		ok &= check(r.worstPeakError < 1e-4f, "vintage: same peak", __LINE__);
+		ok &= check(r.minRms > 0.05f, "vintage: no blank waves", __LINE__);
+		ok &= check(r.worstLoopRatio <= LOOP_RATIO_LIMIT, "vintage: no click at the loop point", __LINE__);
+		ok &= check(r.worstBassRatio >= 1.15f, "vintage: bass fundamental still the loudest", __LINE__);
+		printf("vintage %-7s %s  dc %.1e  min rms %.3f  loop/max step %.2f  fundamental %.2fx\n", gen::vintageName((gen::Vintage)v),
+			ok ? "ok  " : "FAIL", r.worstDc, r.minRms, r.worstLoopRatio, r.worstBassRatio);
+	}
+}
+
 static void testGenerator() {
 	testLoopCheckCatchesClicks();
 	uint32_t seeds[] = {0, 1, 2, 7, 42, 427, 1000, 2024, 5555, 9999};
@@ -252,7 +437,7 @@ static void testGenerator() {
 		bool same = true, differ = false;
 		std::vector<float> previous;
 		for (uint32_t seed : seeds) {
-			for (int variant = 0; variant < 6; variant++) {
+			for (int variant = 0; variant < 12; variant++) {
 				gen::Params p = gen::defaults(type);
 				p.seed = seed;
 				switch (variant) {
@@ -261,6 +446,12 @@ static void testGenerator() {
 				case 3: p.morph = (p.morph == wt::SPECTRAL) ? wt::CROSSFADE : wt::SPECTRAL; break;
 				case 4: p.waves = 16; break;
 				case 5: p.waves = 64; p.keyframes = 7; break;
+				case 6: p.motion = gen::PING_PONG; p.morph = (seed & 1) ? wt::CROSSFADE : wt::SPECTRAL; break;
+				case 7: p.motion = gen::STEPPED; break;
+				case 8: p.motion = gen::RANDOM_WALK; p.movement = 1.f; p.morph = wt::CROSSFADE; break;
+				case 9: p.source = testSource(seed); p.sourceMix = 0.6f; break;
+				case 10: p = gen::mutate(p, 0.6f, seed + 1); break;
+				case 11: p = gen::breed(gen::mutate(p, 0.5f, seed + 2), gen::mutate(p, 0.5f, seed + 3), 0.5f, seed); break;
 				default: break;
 				}
 				std::vector<float> a = gen::generate(p);
@@ -317,6 +508,7 @@ int main() {
 	testKeyframeSelection();
 	testEditorExample();
 	testGenerator();
+	testGeneratorOptions();
 	printf("%d checks, %d failed\n", checks, failures);
 	return failures ? 1 : 0;
 }

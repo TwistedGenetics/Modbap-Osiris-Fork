@@ -184,9 +184,10 @@ jobs:
           tool=./build/osiris-card-tool
           G="$RUNNER_TEMP/generated"
           rm -rf "$G"
-          # Three tables of every type (Sub, Reese, Neuro, Wobble, Hoover, Stab, Acid, Warm, Glassy, Evolving)
-          $tool generate "$G" 3
-          test "$(ls "$G"/*.wav | wc -l | tr -d ' ')" -eq 30
+          # Three tables of every type (Bass: Sub, Reese, Neuro, Wobble, Talking. Lead: Hoover, Stab, Acid, Bell, Pluck,
+          # Sync, Fold. Pad: Warm, Glassy, Evolving, Choir, Strings), plus a mutated and a bred child of each
+          $tool generate "$G" 3 --mutate
+          test "$(ls "$G"/*.wav | wc -l | tr -d ' ')" -eq 153
           # Band-limited, no DC, seamless loop, same peak, no blank waves, bass fundamental dominant and steady
           $tool verify-generated "$G"
           # Format according to Apple's afinfo: 16-bit, 44.1 kHz, mono, 32 x 256 samples
@@ -196,10 +197,23 @@ jobs:
             echo "$info" | grep -Eq "16-bit|Int16" || { echo "$f: not 16-bit"; echo "$info"; exit 1; }
             echo "$info" | grep -Eq "audio packets: 8192|8192 valid frames" || { echo "$f: not 32 x 256"; echo "$info"; exit 1; }
           done
-          echo "afinfo: all 30 generated tables are 16-bit 44.1 kHz mono 32 x 256"
-          # Same seed, same table
-          $tool generate "$RUNNER_TEMP/generated2" 3
+          echo "afinfo: all 153 generated tables are 16-bit 44.1 kHz mono 32 x 256"
+          # Same seed, same table (mutations included)
+          $tool generate "$RUNNER_TEMP/generated2" 3 --mutate
           for f in "$G"/*.wav; do cmp "$f" "$RUNNER_TEMP/generated2/$(basename "$f")"; done
+          # Every motion
+          for m in ping-pong stepped random-walk; do
+            rm -rf "$RUNNER_TEMP/motion"
+            $tool generate "$RUNNER_TEMP/motion" 2 --motion $m
+            $tool verify-generated "$RUNNER_TEMP/motion"
+          done
+          # Vintage character: aliasing allowed on purpose, every other rule still holds
+          for v in s950 sp1200 crush; do
+            rm -rf "$RUNNER_TEMP/vintage"
+            $tool generate "$RUNNER_TEMP/vintage" 2 --vintage $v
+            test "$(ls "$RUNNER_TEMP/vintage"/*.wav | wc -l | tr -d ' ')" -eq 34
+            $tool verify-generated "$RUNNER_TEMP/vintage" --vintage
+          done
           echo "Generator checks passed"
 
       - name: Screenshots
@@ -214,6 +228,7 @@ jobs:
           test -f screenshots/7-blank-waves.png
           test -f screenshots/8-keyframe-morph.png
           test -f screenshots/9-generator.png
+          test -f screenshots/10-mutate-breed.png
 
       - uses: actions/upload-artifact@v4
         with:

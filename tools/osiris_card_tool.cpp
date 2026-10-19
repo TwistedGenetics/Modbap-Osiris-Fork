@@ -7,8 +7,12 @@
 //   osiris-card-tool make-test-tables <dir>     (awkward wavetables for testing the batch: blank waves, 24-bit, stereo...)
 //   osiris-card-tool batch <source dir> <output dir> [--no-cycle] [--normalize] [--fill crossfade|spectral] [--edges hold|wrap|leave]
 //   osiris-card-tool verify-batch <source dir> <output dir> [--fill]   (checks the batch output independently)
-//   osiris-card-tool generate <dir> [seeds per type]   (one 32-wave table per generator type and seed, 16-bit 44.1 kHz)
-//   osiris-card-tool verify-generated <dir>            (checks the generator's rules on the written files)
+//   osiris-card-tool generate <dir> [seeds per type] [--motion sweep|ping-pong|stepped|random-walk]
+//                                     [--vintage s950|sp1200|crush] [--mutate]
+//                                                      (one 32-wave table per generator type and seed, 16-bit 44.1 kHz;
+//                                                       --mutate writes a mutated child and a bred child of each too)
+//   osiris-card-tool verify-generated <dir> [--vintage] (checks the generator's rules on the written files; --vintage
+//                                                       allows the aliasing that vintage character adds on purpose)
 
 #include "cardio.hpp"
 #include "batch.hpp"
@@ -509,22 +513,53 @@ static int cmdGenerate(int argc, char **argv) {
 	if (argc < 3)
 		return 2;
 	std::string dir = argv[2];
-	int perType = argc > 3 ? atoi(argv[3]) : 1;
+	int perType = 1;
+	gen::Motion motion = gen::SWEEP;
+	gen::Vintage vintage = gen::VINTAGE_OFF;
+	bool mutations = false;
+	for (int i = 3; i < argc; i++) {
+		std::string a = argv[i];
+		if (a == "--motion" && i + 1 < argc) {
+			std::string m = argv[++i];
+			motion = m == "ping-pong" ? gen::PING_PONG : (m == "stepped" ? gen::STEPPED : (m == "random-walk" ? gen::RANDOM_WALK : gen::SWEEP));
+		}
+		else if (a == "--vintage" && i + 1 < argc) {
+			std::string v = argv[++i];
+			vintage = v == "s950" ? gen::S950 : (v == "sp1200" ? gen::SP1200 : (v == "crush" ? gen::CRUSH : gen::VINTAGE_OFF));
+		}
+		else if (a == "--mutate")
+			mutations = true;
+		else
+			perType = atoi(a.c_str());
+	}
 	batch::makeDirs(dir);
 	int written = 0;
+	auto write = [&](const gen::Params &p) {
+		std::vector<float> table = gen::generate(p);
+		std::string error;
+		std::string path = dir + "/" + gen::tableName(p) + ".wav";
+		if (!writeWavetable(path, table, error)) {
+			printf("%s\n", error.c_str());
+			return false;
+		}
+		written++;
+		return true;
+	};
 	for (int t = 0; t < gen::TYPE_COUNT; t++) {
 		gen::Params p = gen::defaults((gen::Type)t);
 		p.waves = 32;
+		p.motion = motion;
+		p.vintage = vintage;
 		for (int i = 0; i < perType; i++) {
 			p.seed = i == 0 ? 427 : gen::nextSeed(p.seed);
-			std::vector<float> table = gen::generate(p);
-			std::string error;
-			std::string path = dir + "/" + gen::tableName(p) + ".wav";
-			if (!writeWavetable(path, table, error)) {
-				printf("%s\n", error.c_str());
+			if (!write(p))
 				return 1;
+			if (mutations) {
+				gen::Params child = gen::mutate(p, 0.5f, p.seed);            // ..._g1
+				gen::Params grandchild = gen::breed(child, gen::mutate(p, 0.5f, p.seed + 1), 0.5f, p.seed); // ..._g2
+				if (!write(child) || !write(grandchild))
+					return 1;
 			}
-			written++;
 		}
 	}
 	printf("%d tables written to %s\n", written, dir.c_str());
@@ -536,6 +571,7 @@ static int cmdVerifyGenerated(int argc, char **argv) {
 		return 2;
 	int problems = 0, files = 0;
 	float worst16 = 1.f / 32768.f * 4.f; // allowance for 16-bit rounding
+	bool vintage = argc > 3 && !strcmp(argv[3], "--vintage");
 	for (const std::string &f : listWavFiles(argv[2])) {
 		std::string name = f.substr(f.find_last_of('/') + 1);
 		Audio a;
@@ -561,9 +597,9 @@ static int cmdVerifyGenerated(int argc, char **argv) {
 				maxStep = fmaxf(maxStep, fabsf(wave[i + 1] - wave[i]));
 			float wrap = fabsf(wave[0] - wave[255]);
 			const char *fail = NULL;
-			if (amp[128] > 1e-4f)
+			if (amp[128] > 1e-4f && !vintage)
 				fail = "has content at the Nyquist bin (not band-limited)";
-			else if (amp[0] > 1e-4f)
+			else if (amp[0] > (vintage ? 2e-3f : 1e-4f))
 				fail = "has a DC offset";
 			else if (fabsf(peak - gen::PEAK) > worst16)
 				fail = "has a different peak";
@@ -575,9 +611,9 @@ static int cmdVerifyGenerated(int argc, char **argv) {
 				float maxOther = 0.f;
 				for (int k = 2; k < 128; k++)
 					maxOther = fmaxf(maxOther, amp[k]);
-				if (amp[1] < 1.25f * maxOther)
+				if (amp[1] < (vintage ? 1.15f : 1.25f) * maxOther)
 					fail = "fundamental isn't the loudest harmonic";
-				else if (fabsf(remainderf(ph[1] + 1.5707963f, 6.2831853f)) > 5e-3f)
+				else if (!vintage && fabsf(remainderf(ph[1] + 1.5707963f, 6.2831853f)) > 5e-3f)
 					fail = "fundamental phase drifts";
 			}
 			if (fail) {
