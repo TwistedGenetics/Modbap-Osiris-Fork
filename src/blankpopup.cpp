@@ -298,6 +298,7 @@ void blankRenderPopup() {
 	ImGui::SetNextWindowContentWidth(620);
 	if (!ImGui::BeginPopupModal("Blank Waves Found", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
+	ui::CenterModal();
 
 	const Job &job = jobs.front();
 	std::vector<float> samples;

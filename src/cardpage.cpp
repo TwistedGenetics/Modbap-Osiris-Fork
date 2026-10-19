@@ -476,6 +476,7 @@ static void renameDialog() {
 	}
 	if (!ImGui::BeginPopupModal("Rename Slot", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
+	ui::CenterModal();
 	ImGui::Text("Name for %s", slotLabel(menuBank, menuSlot).c_str());
 	ImGui::PushItemWidth(320);
 	if (ImGui::IsWindowAppearing())
@@ -501,6 +502,7 @@ static void exportDialog(const std::vector<Issue> &issues) {
 	ImGui::SetNextWindowContentWidth(560);
 	if (!ImGui::BeginPopupModal("Export to SD Card", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
+	ui::CenterModal();
 
 	ui::SectionHeading("Destination");
 	if (volumes.empty()) {
@@ -589,6 +591,7 @@ static void summaryDialog() {
 	ImGui::SetNextWindowContentWidth(520);
 	if (!ImGui::BeginPopupModal("Export Summary", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
+	ui::CenterModal();
 	const ExportResult &r = lastResult;
 	if (r.ok)
 		ImGui::Text("Wrote %d wavetables to %s", r.written, r.osirisPath.c_str());
@@ -786,6 +789,7 @@ void cardPage() {
 		openCycleConfirm = false;
 	}
 	if (ImGui::BeginPopupModal("Cycle All Slots?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ui::CenterModal();
 		ImGui::Text("Apply Cycle to every wave in all %d wavetables on the card?", card.filledCount());
 		ImGui::TextDisabled("Cycle lines up the end of each wave with its start, removing the click at the loop point.");
 		ImGui::TextDisabled("You can undo this with the Undo button.");
@@ -807,6 +811,7 @@ void cardPage() {
 		ImGui::EndPopup();
 	}
 	if (ImGui::BeginPopupModal("Clear Card?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ui::CenterModal();
 		ImGui::Text("Remove all %d wavetables from the layout?", card.filledCount());
 		ImGui::TextDisabled("Nothing on your SD card is touched.");
 		if (ImGui::Button("Clear", ImVec2(120, 0))) {

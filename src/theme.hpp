@@ -49,6 +49,10 @@ void GlowPolyline(ImDrawList *drawList, const ImVec2 *points, int count, ImU32 c
 /** Gradient fill between a curve and a horizontal baseline. `colCurve` at the curve fading to `colBase` at the baseline. */
 void FillUnderCurve(ImDrawList *drawList, const ImVec2 *points, int count, float baseY, ImU32 colCurve, ImU32 colBase);
 
+/** Call straight after BeginPopupModal() returns true: centres the dialog in the window, re-centring whenever its size
+changes (dialogs that grow stay centred) and always keeping it on screen */
+void CenterModal();
+
 /** Vertical gradient rectangle with optional rounding on the top corners */
 void GradientRect(ImDrawList *drawList, ImVec2 a, ImVec2 b, ImU32 colTop, ImU32 colBottom);
 } // namespace ui

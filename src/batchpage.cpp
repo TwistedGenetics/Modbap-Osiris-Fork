@@ -245,6 +245,7 @@ void setupView() {
 		openOverwriteConfirm = false;
 	}
 	if (ImGui::BeginPopupModal("Overwrite Originals?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ui::CenterModal();
 		ImGui::Text("Replace %d %s in", (int)files.size(), files.size() == 1 ? "file" : "files");
 		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(theme.accent), "%s", sourceDir);
 		ImGui::Text("with the processed versions? This can't be undone.");
@@ -358,6 +359,7 @@ void batchRenderDialog() {
 		closeRequested = false;
 		return;
 	}
+	ui::CenterModal();
 	if (state == SETUP)
 		setupView();
 	else if (state == RUNNING)

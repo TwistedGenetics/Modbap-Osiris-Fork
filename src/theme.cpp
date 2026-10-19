@@ -6,6 +6,7 @@
 #include "imgui_internal.h"
 
 #include <ctype.h>
+#include <map>
 
 UITheme theme;
 
@@ -222,6 +223,27 @@ void FillUnderCurve(ImDrawList *drawList, const ImVec2 *points, int count, float
 		drawList->PrimWriteVtx(p1, uv, colCurve);
 		drawList->PrimWriteVtx(ImVec2(p1.x, baseY), uv, colBase);
 		drawList->PrimWriteVtx(ImVec2(p0.x, baseY), uv, colBase);
+	}
+}
+
+void CenterModal()
+{
+	ImGuiWindow *window = ImGui::GetCurrentWindow();
+	ImVec2 display = ImGui::GetIO().DisplaySize;
+	ImVec2 size = window->SizeFull;
+	ImVec2 pos = window->Pos;
+	// Size each dialog had when it was last centred
+	static std::map<ImGuiID, ImVec2> centredSize;
+	ImVec2 &last = centredSize[window->ID];
+	bool resized = fabsf(last.x - size.x) > 0.5f || fabsf(last.y - size.y) > 0.5f;
+	bool offScreen = pos.x < 0.f || pos.y < 0.f || pos.x + size.x > display.x || pos.y + size.y > display.y;
+	if (ImGui::IsWindowAppearing() || resized || offScreen)
+	{
+		ImVec2 p = ImVec2(floorf((display.x - size.x) * 0.5f), floorf((display.y - size.y) * 0.5f));
+		p.x = fmaxf(p.x, 4.f);
+		p.y = fmaxf(p.y, 4.f);
+		ImGui::SetWindowPos(p);
+		last = size;
 	}
 }
 

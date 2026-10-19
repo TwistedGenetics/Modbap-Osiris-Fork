@@ -632,6 +632,7 @@ void renderPopup()
 	ImGui::SetNextWindowContentWidth(640.0);
 	if (!ImGui::BeginPopupModal("Convert Folder for Osiris", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
+	ui::CenterModal();
 
 	ImGui::TextWrapped("Converts every WAV file in a folder into Osiris wavetables: 16-bit, 44.1 kHz mono, 32 waves each, "
 		"32 files per bank, named Osiris_<Bank>_<Pack>_<N>.wav. Files are taken in number order (2 before 10).");
