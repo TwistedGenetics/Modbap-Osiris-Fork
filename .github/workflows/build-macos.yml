@@ -176,6 +176,32 @@ jobs:
           cmp "$B/inplace/05 Serum 2048.wav" "$B/src/05 Serum 2048.wav"
           echo "Batch checks passed"
 
+      - name: Test the wavetable generator
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          exec > >(tee ci-logs/generator.log) 2>&1
+          tool=./build/osiris-card-tool
+          G="$RUNNER_TEMP/generated"
+          rm -rf "$G"
+          # Three tables of every type (Sub, Reese, Neuro, Wobble, Hoover, Stab, Acid, Warm, Glassy, Evolving)
+          $tool generate "$G" 3
+          test "$(ls "$G"/*.wav | wc -l | tr -d ' ')" -eq 30
+          # Band-limited, no DC, seamless loop, same peak, no blank waves, bass fundamental dominant and steady
+          $tool verify-generated "$G"
+          # Format according to Apple's afinfo: 16-bit, 44.1 kHz, mono, 32 x 256 samples
+          for f in "$G"/*.wav; do
+            info=$(afinfo "$f")
+            echo "$info" | grep -Eq "1 ch, +44100 Hz" || { echo "$f: not mono 44.1 kHz"; echo "$info"; exit 1; }
+            echo "$info" | grep -Eq "16-bit|Int16" || { echo "$f: not 16-bit"; echo "$info"; exit 1; }
+            echo "$info" | grep -Eq "audio packets: 8192|8192 valid frames" || { echo "$f: not 32 x 256"; echo "$info"; exit 1; }
+          done
+          echo "afinfo: all 30 generated tables are 16-bit 44.1 kHz mono 32 x 256"
+          # Same seed, same table
+          $tool generate "$RUNNER_TEMP/generated2" 3
+          for f in "$G"/*.wav; do cmp "$f" "$RUNNER_TEMP/generated2/$(basename "$f")"; done
+          echo "Generator checks passed"
+
       - name: Screenshots
         run: |
           mkdir -p screenshots
@@ -186,6 +212,8 @@ jobs:
           test -f screenshots/5-sdcard.png
           test -f screenshots/6-batch.png
           test -f screenshots/7-blank-waves.png
+          test -f screenshots/8-keyframe-morph.png
+          test -f screenshots/9-generator.png
 
       - uses: actions/upload-artifact@v4
         with:

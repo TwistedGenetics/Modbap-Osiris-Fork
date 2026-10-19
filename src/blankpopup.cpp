@@ -105,59 +105,19 @@ void showNotice(const std::string &text) {
 	noticeUntil = SDL_GetTicks() + 4500;
 }
 
-/** Strip of waves: one column per wave, blank ones highlighted. `filledFrom` marks waves changed by the preview. */
+/** Strip of waves: blank ones highlighted, or (with `before`) the ones the fill changes */
 void drawStrip(const char *id, const std::vector<float> &samples, int waveCount, const wt::BlankReport &report, const std::vector<float> *before) {
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	ImVec2 a = ImGui::GetCursorScreenPos();
-	float width = ImGui::GetContentRegionAvailWidth();
-	float height = 54.f;
-	ImGui::InvisibleButton(id, ImVec2(width, height));
-	dl->AddRectFilled(a, a + ImVec2(width, height), theme.display, 4.f);
-
-	int shown = waveCount;
-	float colW = width / shown;
-	std::vector<bool> isBlank(waveCount, false);
-	for (int w : report.blank)
-		isBlank[w] = true;
-	for (int w = 0; w < shown; w++) {
-		ImVec2 c0 = ImVec2(a.x + colW * w, a.y);
-		ImVec2 c1 = ImVec2(a.x + colW * (w + 1) - (colW > 4.f ? 1.f : 0.f), a.y + height);
-		bool padding = report.paddedFrom >= 0 && w >= report.paddedFrom;
-		bool changed = before && memcmp(&(*before)[(size_t)w * WAVE_LEN], &samples[(size_t)w * WAVE_LEN], sizeof(float) * WAVE_LEN) != 0;
-		if (padding)
-			dl->AddRectFilled(c0, c1, colAlpha(theme.textDim, 0.08f));
-		else if (changed)
-			dl->AddRectFilled(c0, c1, colAlpha(theme.accent2, 0.22f));
-		else if (isBlank[w] && !before)
-			dl->AddRectFilled(c0, c1, colAlpha(warnColor(), 0.28f));
-		ImU32 col = changed ? colMix(theme.accent2, theme.text, 0.3f) : (padding ? colAlpha(theme.textDim, 0.4f) : theme.accent);
-		const float *wave = &samples[(size_t)w * WAVE_LEN];
-		if (colW >= 6.f) {
-			const int points = 24;
-			ImVec2 pts[points];
-			float mid = (c0.y + c1.y) * 0.5f, half = height * 0.5f - 5.f;
-			for (int i = 0; i < points; i++) {
-				float v = wave[i * WAVE_LEN / points];
-				pts[i] = ImVec2(c0.x + 1.f + (c1.x - c0.x - 2.f) * i / (points - 1), mid - (v < -1.f ? -1.f : (v > 1.f ? 1.f : v)) * half);
-			}
-			dl->AddPolyline(pts, points, col, false, 1.f, true);
-		}
-		else {
-			// Too narrow for a waveform: show the peak level
-			float peak = 0.f;
-			for (int i = 0; i < WAVE_LEN; i++)
-				peak = fmaxf(peak, fabsf(wave[i]));
-			float h = fminf(peak, 1.f) * (height - 6.f);
-			dl->AddRectFilled(ImVec2(c0.x, c1.y - 3.f - h), ImVec2(c1.x, c1.y - 3.f), col);
-		}
+	std::vector<unsigned char> marks(waveCount, ui::STRIP_NORMAL);
+	if (!before)
+		for (int w : report.blank)
+			marks[w] = ui::STRIP_BLANK;
+	for (int w = 0; w < waveCount; w++) {
+		if (report.paddedFrom >= 0 && w >= report.paddedFrom)
+			marks[w] = ui::STRIP_PADDING;
+		else if (before && memcmp(&(*before)[(size_t)w * WAVE_LEN], &samples[(size_t)w * WAVE_LEN], sizeof(float) * WAVE_LEN) != 0)
+			marks[w] = ui::STRIP_CHANGED;
 	}
-	// Wave numbers every so often
-	int step = shown <= 32 ? 4 : (shown <= 64 ? 8 : shown / 8);
-	for (int w = 0; w < shown; w += step) {
-		char num[8];
-		snprintf(num, sizeof(num), "%d", w + 1);
-		dl->AddText(ImVec2(a.x + colW * w + 2.f, a.y + height - ImGui::GetFontSize() - 1.f), colAlpha(theme.textDim, 0.7f), num);
-	}
+	ui::WaveStrip(id, samples.data(), waveCount, marks.data());
 }
 
 void finishJob(bool fill, bool rememberChoice) {
@@ -252,6 +212,11 @@ bool blankPopupPending() {
 	return !jobs.empty();
 }
 
+void blankCancelAll() {
+	jobs.clear();
+	snapshotTaken = false;
+}
+
 void blankPreferencesMenu() {
 	ImGui::TextDisabled("When a wavetable has blank waves");
 	if (ImGui::MenuItem("Ask", NULL, blankPrefMode == BLANK_ASK))
@@ -296,6 +261,7 @@ void blankRenderPopup() {
 		openRequested = false;
 	}
 	ImGui::SetNextWindowContentWidth(620);
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Blank Waves Found", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
 	ui::CenterModal();

@@ -17,6 +17,7 @@
 #include "theme.hpp"
 #include "cardio.hpp"
 #include "wtprocess.hpp"
+#include "keyframes.hpp"
 
 #include "osdialog/osdialog.h"
 
@@ -36,6 +37,7 @@ static ImTextureID logoTextureLight;
 static ImTextureID logoTextureDark;
 static ImTextureID logoTexture;
 char lastFilename[1024] = "";
+char tableName[64] = "";
 static int styleId = 0;
 int selectedId = 0;
 int lastSelectedId = 0;
@@ -164,6 +166,7 @@ static void menuNewBank()
 	showCurrentBankPage();
 	currentBank.clear();
 	lastFilename[0] = '\0';
+	tableName[0] = '\0';
 	historyPush();
 }
 
@@ -192,6 +195,7 @@ static void menuOpenBank()
 		showCurrentBankPage();
 		int fileWaves = currentBank.loadWAV(path);
 		snprintf(lastFilename, sizeof(lastFilename), "%s", path);
+		tableName[0] = '\0';
 		historyPushNew();
 		if (fileWaves > 0)
 		{
@@ -207,11 +211,14 @@ static void menuOpenBank()
 static void menuSaveBankAs()
 {
 	char *dir = getLastDir();
-	char *path = osdialog_file(OSDIALOG_SAVE, dir, "Untitled.wav", NULL);
+	char suggested[80];
+	snprintf(suggested, sizeof(suggested), "%s.wav", tableName[0] ? tableName : "Untitled");
+	char *path = osdialog_file(OSDIALOG_SAVE, dir, suggested, NULL);
 	if (path)
 	{
 		currentBank.saveWAV(path);
 		snprintf(lastFilename, sizeof(lastFilename), "%s", path);
+		tableName[0] = '\0';
 		free(path);
 	}
 	free(dir);
@@ -368,6 +375,8 @@ static void menuKeyCommands()
 		{
 			if (ImGui::IsKeyPressed(SDLK_r))
 				menuRandomize();
+			if (ImGui::IsKeyPressed(SDLK_k))
+				editorToggleKeyframes();
 			if (ImGui::IsKeyPressed(io.OSXBehaviors ? SDLK_BACKSPACE : SDLK_DELETE))
 				menuClear();
 			// Pages
@@ -403,9 +412,9 @@ void renderWaveMenu()
 	int selectedStart = mini(selectedId, lastSelectedId);
 	int selectedEnd = maxi(selectedId, lastSelectedId);
 	if (selectedStart != selectedEnd)
-		snprintf(menuName, sizeof(menuName), "(Wave %d to %d)", selectedStart, selectedEnd);
+		snprintf(menuName, sizeof(menuName), "(Wave %d to %d)", selectedStart + 1, selectedEnd + 1);
 	else
-		snprintf(menuName, sizeof(menuName), "(Wave %d)", selectedId);
+		snprintf(menuName, sizeof(menuName), "(Wave %d)", selectedId + 1);
 	ImGui::MenuItem(menuName, NULL, false, false);
 	if (selectedId - lastSelectedId != 0)
 	{
@@ -426,11 +435,22 @@ void renderWaveMenu()
 	{
 		menuRandomize();
 	}
+	{
+		bool allKeyframes = true;
+		for (int w = selectedStart; w <= selectedEnd; w++)
+			allKeyframes = allKeyframes && currentBank.keyframes[w];
+		if (ImGui::MenuItem("Keyframe", "K", allKeyframes))
+			editorToggleKeyframes();
+		if (ImGui::MenuItem("Morph Between Keyframes..."))
+			morphOpenDialog();
+		if (ImGui::MenuItem("Generate Wavetable..."))
+			genOpenDialog();
+	}
 
 	if (selectedStart != selectedEnd)
 	{
 		ImGui::MenuItem("##spacer3", NULL, false, false);
-		snprintf(menuName, sizeof(menuName), "(Wave %d)", selectedId);
+		snprintf(menuName, sizeof(menuName), "(Wave %d)", selectedId + 1);
 		ImGui::MenuItem(menuName, NULL, false, false);
 	}
 
@@ -630,6 +650,7 @@ void renderPopup()
 	}
 
 	ImGui::SetNextWindowContentWidth(640.0);
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Convert Folder for Osiris", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
 	ui::CenterModal();
@@ -899,6 +920,17 @@ void editorPage()
 				ImGui::EndPopup();
 			}
 		}
+
+		ImGui::SameLine(0, 16);
+		if (ImGui::Button("Morph..."))
+			morphOpenDialog();
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Morph between keyframes (mark them with K or right-click > Keyframe)");
+		ImGui::SameLine();
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(theme.modern ? theme.accent : theme.text));
+		if (ImGui::Button("Generate..."))
+			genOpenDialog();
+		ImGui::PopStyleColor();
 
 		// ImGui::SameLine();
 		// if (ImGui::RadioButton("Smooth", tool == SMOOTH_TOOL)) tool = SMOOTH_TOOL;
@@ -1219,6 +1251,8 @@ void renderMain()
 		default:
 			break;
 		}
+		morphRenderDialog();
+		genRenderDialog();
 	}
 	ImGui::End();
 
@@ -1684,7 +1718,7 @@ void uiSetPage(int page)
 
 bool uiScreenshotStep(SDL_Window *window, const char *dir)
 {
-	static const char *pageNames[NUM_PAGES + 2] = {"editor", "effects", "grid", "waterfall", "import", "sdcard", "batch", "blank-waves"};
+	static const char *pageNames[NUM_PAGES + 4] = {"editor", "effects", "grid", "waterfall", "import", "sdcard", "batch", "blank-waves", "keyframe-morph", "generator"};
 	static int frame = 0;
 	static int page = 0;
 	// Give each page a few frames to settle (fonts, layout, audio thread)
@@ -1711,7 +1745,7 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir)
 
 	frame = 0;
 	page++;
-	if (page >= NUM_PAGES + 2)
+	if (page >= NUM_PAGES + 4)
 		return true;
 	if (page < NUM_PAGES)
 	{
@@ -1724,6 +1758,35 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir)
 		char banks[1024];
 		snprintf(banks, sizeof(banks), "%s", getenv("OSIRIS_SCREENSHOT_BANK") ? getenv("OSIRIS_SCREENSHOT_BANK") : "banks/ROM A.wav");
 		batchDemo(dirname(banks));
+	}
+	else if (page == NUM_PAGES + 2)
+	{
+		// Keyframes: sine at 1, square at 16, FM at 32
+		blankCancelAll();
+		currentPage = EDITOR_PAGE;
+		for (int w = 0; w < BANK_LEN; w++)
+			currentBank.keyframes[w] = false;
+		int last = BANK_LEN - 1, mid = BANK_LEN / 2 - 1;
+		for (int i = 0; i < WAVE_LEN; i++)
+		{
+			float th = 2.f * (float)M_PI * i / WAVE_LEN, sq = 0.f;
+			for (int k = 1; k < 40; k += 2)
+				sq += sinf(k * th) / k;
+			currentBank.waves[0].samples[i] = 0.9f * sinf(th);
+			currentBank.waves[mid].samples[i] = 0.75f * sq;
+			currentBank.waves[last].samples[i] = 0.85f * sinf(th + 2.f * sinf(3.f * th));
+		}
+		currentBank.waves[0].commitSamples();
+		currentBank.waves[mid].commitSamples();
+		currentBank.waves[last].commitSamples();
+		currentBank.keyframes[0] = currentBank.keyframes[mid] = currentBank.keyframes[last] = true;
+		selectedId = lastSelectedId = 0;
+		morphOpenDialog();
+	}
+	else if (page == NUM_PAGES + 3)
+	{
+		morphCloseDialog();
+		genOpenDialog();
 	}
 	else
 	{

@@ -23,6 +23,14 @@ An existing Osiris folder is never deleted: it's backed up to `Osiris_backup_<da
 
 When a wavetable with silent waves (below -60 dBFS) is opened, or added to the SD Card page, a pop-up offers to fill each gap by morphing between the waves either side: **Crossfade** (sample by sample) or **Spectral** (blends harmonics, so the level holds up when the two waves are out of phase). Blank waves at the start or end can hold the nearest wave, morph round to the other end of the table, or stay blank. The fill is a single undo step. **Preferences > Blank Waves** sets whether to ask, always fill or never fill.
 
+### Morph between keyframes
+
+Mark waves as keyframes (select a wave and press **K**, or right-click > **Keyframe**; they get a diamond on their thumbnail), then **Morph...** fills every wave between neighbouring keyframes with a morph from one to the next. For example, a sine at 1, a square at 16 and an FM wave at 32 gives a sine-to-square morph across 2-15 and square-to-FM across 17-31. With a range selected (shift-click), its first and last waves count as keyframes too. Choose Crossfade or Spectral and a curve (Linear, Ease In, Ease Out, S-curve); keyframes are used as you hear them and are never changed. One undo step.
+
+### Generate wavetables (drum & bass / jungle)
+
+**Generate...** builds tables from recipes: bass (Sub, Reese, Neuro, Wobble), leads (Hoover, Stab, Acid) and pads (Warm, Glassy, Evolving), with Brightness, Movement, Grit, Keyframes, morph type and a seed. The same seed and settings always give the same table (named like `Reese_0427`). Press Play in the dialog to audition it, then **Use in Editor** (keyframes are marked so you can re-morph it) or **Add Tables** to fill the next free slots on the SD Card page. Every wave is built from harmonics 1-127, so it's band-limited, has no DC and loops seamlessly, and every wave has the same peak. On bass tables the fundamental stays the loudest harmonic with the same phase on every wave, so the sub never thins out as the table morphs.
+
 ### Download (Apple Silicon Mac)
 
 Grab the latest `OsirisEdit-*-mac-arm64.zip` from the Releases page, or from the artifacts of the latest "Build macOS (Apple Silicon)" run on the Actions tab.

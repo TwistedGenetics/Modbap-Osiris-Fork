@@ -191,6 +191,9 @@ extern int BANK_LEN;
 
 struct Bank {
 	Wave waves[MAX_BANK_LEN];
+	/** Waves marked as keyframes for Morph Between Keyframes. Kept after `waves` so autosaves from before keyframes
+	existed still load (they just have none). */
+	bool keyframes[MAX_BANK_LEN];
 
 	void clear();
 	void swap(int i, int j);
@@ -316,6 +319,8 @@ bool uiScreenshotStep(SDL_Window *window, const char *dir);
 extern int selectedId;
 extern int lastSelectedId;
 extern char lastFilename[1024];
+/** Name of a table that hasn't been saved yet (e.g. "Reese_0427" from the generator); used as the Save As name */
+extern char tableName[64];
 
 
 ////////////////////
@@ -359,8 +364,21 @@ void blankCheckEditor(int sourceWaves, const std::string &name);
 /** Checks an SD card slot. `force` shows the pop-up even if Preferences say never/always. */
 void blankCheckSlot(int bank, int slot, bool force);
 bool blankPopupPending();
+/** Drops any pending blank-wave questions (screenshot mode) */
+void blankCancelAll();
 void blankPreferencesMenu();
 void blankRenderPopup();
+
+////////////////////
+// morphdialog.cpp, gendialog.cpp
+////////////////////
+
+void morphOpenDialog();
+void morphCloseDialog();
+void morphRenderDialog();
+void genOpenDialog();
+void genCloseDialog();
+void genRenderDialog();
 
 ////////////////////
 // batchpage.cpp

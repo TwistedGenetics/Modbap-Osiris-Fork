@@ -64,12 +64,16 @@ int main(int argc, char **argv) {
 	SDL_GetCurrentDisplayMode(0, &current);
 	// Screenshot mode (OSIRIS_SCREENSHOTS=<dir>): fixed window size, save a PNG of each page, then quit
 	const char *screenshotDir = getenv("OSIRIS_SCREENSHOTS");
+	// OSIRIS_SCREENSHOT_SIZE=<w>x<h> picks the window size for screenshots (default 1440x900)
+	int screenshotWidth = screenshotDir ? 1440 : 1024, screenshotHeight = screenshotDir ? 900 : 768;
+	if (screenshotDir && getenv("OSIRIS_SCREENSHOT_SIZE"))
+		sscanf(getenv("OSIRIS_SCREENSHOT_SIZE"), "%dx%d", &screenshotWidth, &screenshotHeight);
 	Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
 	if (!screenshotDir)
 		windowFlags |= SDL_WINDOW_MAXIMIZED;
 	SDL_Window *window = SDL_CreateWindow("",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		screenshotDir ? 1440 : 1024, screenshotDir ? 900 : 768,
+		screenshotWidth, screenshotHeight,
 		windowFlags);
 	assert(window);
 	SDL_SetWindowMinimumSize(window, 800, 600);
@@ -132,6 +136,9 @@ int main(int argc, char **argv) {
 			lastBasenameP = basename(lastBasename);
 #endif
 			snprintf(newTitle, sizeof(newTitle), "OsirisEdit - %s", lastBasenameP);
+		}
+		else if (tableName[0]) {
+			snprintf(newTitle, sizeof(newTitle), "OsirisEdit - %s (not saved)", tableName);
 		}
 		else {
 			snprintf(newTitle, sizeof(newTitle), "OsirisEdit");

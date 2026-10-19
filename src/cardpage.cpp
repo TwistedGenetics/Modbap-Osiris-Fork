@@ -76,6 +76,28 @@ void cardSetStatus(const std::string &s) {
 	status = s;
 }
 
+std::vector<Position> cardFreeSlots(int count) {
+	bool occupied[BANKS][SLOTS];
+	card.getOccupied(occupied);
+	std::vector<Position> out = planFill(occupied, selBank, selSlot, count);
+	for (const Position &p : out)
+		occupied[p.bank][p.slot] = true;
+	if ((int)out.size() < count) {
+		std::vector<Position> more = planFill(occupied, 0, 0, count - (int)out.size());
+		out.insert(out.end(), more.begin(), more.end());
+	}
+	return out;
+}
+
+static void syncPackBuffers();
+
+void cardSetPackIfEmpty(int bank, const std::string &pack) {
+	if (bank >= 0 && bank < BANKS && card.pack[bank].empty()) {
+		card.pack[bank] = pack;
+		syncPackBuffers();
+	}
+}
+
 static void cycleSlot(Slot &slot) {
 	if (slot.filled && (int)slot.samples.size() >= slot.waveCount * WAVE_SAMPLES)
 		wt::processTable(slot.samples.data(), slot.waveCount, true, false);
@@ -474,6 +496,7 @@ static void renameDialog() {
 		ImGui::OpenPopup("Rename Slot");
 		openRename = false;
 	}
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Rename Slot", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
 	ui::CenterModal();
@@ -500,6 +523,7 @@ static void exportDialog(const std::vector<Issue> &issues) {
 		openExport = false;
 	}
 	ImGui::SetNextWindowContentWidth(560);
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Export to SD Card", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
 	ui::CenterModal();
@@ -589,6 +613,7 @@ static void summaryDialog() {
 		openSummary = false;
 	}
 	ImGui::SetNextWindowContentWidth(520);
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Export Summary", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 		return;
 	ui::CenterModal();
@@ -788,6 +813,7 @@ void cardPage() {
 		ImGui::OpenPopup("Cycle All Slots?");
 		openCycleConfirm = false;
 	}
+	ui::LimitModalHeight();
 	if (ImGui::BeginPopupModal("Cycle All Slots?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ui::CenterModal();
 		ImGui::Text("Apply Cycle to every wave in all %d wavetables on the card?", card.filledCount());
@@ -810,6 +836,7 @@ void cardPage() {
 			ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
 	}
+	ui::LimitModalHeight();
 	if (ImGui::BeginPopupModal("Clear Card?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ui::CenterModal();
 		ImGui::Text("Remove all %d wavetables from the layout?", card.filledCount());

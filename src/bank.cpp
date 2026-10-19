@@ -17,6 +17,9 @@ void Bank::swap(int i, int j) {
 	Wave tmp = waves[i];
 	waves[i] = waves[j];
 	waves[j] = tmp;
+	bool k = keyframes[i];
+	keyframes[i] = keyframes[j];
+	keyframes[j] = k;
 }
 
 

@@ -103,7 +103,10 @@ bool Slider(const char *id, const char *label, float *v, float vMin, float vMax,
 	{
 		float t2 = sliderRatio(*v, vMin, vMax, power);
 		float x = clampf(min.x + (max.x - min.x) * t2, min.x + 3.f, max.x - 3.f);
-		if (x < valueLeft || x > max.x - style.FramePadding.x + 2.f)
+		// Skip it where it would run through the label or the value text
+		float labelRight = min.x + style.FramePadding.x + 4.f + ImGui::CalcTextSize(label, NULL, true).x + 4.f;
+		bool overText = (x > min.x + style.FramePadding.x && x < labelRight) || (x >= valueLeft && x <= max.x - style.FramePadding.x + 2.f);
+		if (!overText)
 			drawList->AddRectFilled(ImVec2(x - 1.f, min.y + 4.f), ImVec2(x + 1.f, max.y - 4.f), active ? theme.text : theme.accent, 1.f);
 	}
 
@@ -224,6 +227,87 @@ void FillUnderCurve(ImDrawList *drawList, const ImVec2 *points, int count, float
 		drawList->PrimWriteVtx(ImVec2(p1.x, baseY), uv, colBase);
 		drawList->PrimWriteVtx(ImVec2(p0.x, baseY), uv, colBase);
 	}
+}
+
+void Diamond(ImDrawList *drawList, ImVec2 c, float r, ImU32 col)
+{
+	drawList->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), col);
+}
+
+void WaveStrip(const char *id, const float *samples, int waveCount, const unsigned char *marks, float height)
+{
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	ImVec2 a = ImGui::GetCursorScreenPos();
+	float width = ImGui::GetContentRegionAvailWidth();
+	ImGui::InvisibleButton(id, ImVec2(width, height));
+	dl->AddRectFilled(a, a + ImVec2(width, height), theme.display, 4.f);
+	ImU32 warn = theme.modern ? IM_COL32(0xf5, 0xb5, 0x4a, 0xff) : IM_COL32(0xc0, 0x60, 0x00, 0xff);
+	float colW = width / fmaxf(1.f, (float)waveCount);
+	for (int w = 0; w < waveCount; w++)
+	{
+		int mark = marks ? marks[w] : STRIP_NORMAL;
+		ImVec2 c0 = ImVec2(a.x + colW * w, a.y);
+		ImVec2 c1 = ImVec2(a.x + colW * (w + 1) - (colW > 4.f ? 1.f : 0.f), a.y + height);
+		ImU32 col = theme.accent;
+		if (mark == STRIP_PADDING)
+		{
+			dl->AddRectFilled(c0, c1, colAlpha(theme.textDim, 0.08f));
+			col = colAlpha(theme.textDim, 0.4f);
+		}
+		else if (mark == STRIP_CHANGED)
+		{
+			dl->AddRectFilled(c0, c1, colAlpha(theme.accent2, 0.22f));
+			col = colMix(theme.accent2, theme.text, 0.3f);
+		}
+		else if (mark == STRIP_BLANK)
+		{
+			dl->AddRectFilled(c0, c1, colAlpha(warn, 0.28f));
+		}
+		else if (mark == STRIP_KEYFRAME)
+		{
+			dl->AddRectFilled(c0, c1, colAlpha(theme.accent, 0.14f));
+			col = theme.text;
+		}
+		const float *wave = samples + (size_t)w * 256;
+		if (colW >= 6.f)
+		{
+			const int points = 24;
+			ImVec2 pts[points];
+			float mid = (c0.y + c1.y) * 0.5f, half = height * 0.5f - 5.f;
+			for (int i = 0; i < points; i++)
+			{
+				float v = wave[i * 256 / points];
+				v = v < -1.f ? -1.f : (v > 1.f ? 1.f : v);
+				pts[i] = ImVec2(c0.x + 1.f + (c1.x - c0.x - 2.f) * i / (points - 1), mid - v * half);
+			}
+			dl->AddPolyline(pts, points, col, false, 1.f, true);
+		}
+		else
+		{
+			// Too narrow for a waveform: show the peak level
+			float peak = 0.f;
+			for (int i = 0; i < 256; i++)
+				peak = fmaxf(peak, fabsf(wave[i]));
+			float h = fminf(peak, 1.f) * (height - 6.f);
+			dl->AddRectFilled(ImVec2(c0.x, c1.y - 3.f - h), ImVec2(c1.x, c1.y - 3.f), col);
+		}
+		if (mark == STRIP_KEYFRAME)
+			Diamond(dl, ImVec2((c0.x + c1.x) * 0.5f, c0.y + 5.f), 3.5f, theme.accent);
+	}
+	// Wave numbers every so often
+	int step = waveCount <= 32 ? 4 : (waveCount <= 64 ? 8 : waveCount / 8);
+	for (int w = 0; w < waveCount; w += step)
+	{
+		char num[8];
+		snprintf(num, sizeof(num), "%d", w + 1);
+		dl->AddText(ImVec2(a.x + colW * w + 2.f, a.y + height - ImGui::GetFontSize() - 1.f), colAlpha(theme.textDim, 0.7f), num);
+	}
+}
+
+void LimitModalHeight()
+{
+	ImVec2 display = ImGui::GetIO().DisplaySize;
+	ImGui::SetNextWindowSizeConstraints(ImVec2(0.f, 0.f), ImVec2(display.x - 16.f, display.y - 16.f));
 }
 
 void CenterModal()

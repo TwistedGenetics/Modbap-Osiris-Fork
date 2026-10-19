@@ -52,6 +52,23 @@ void FillUnderCurve(ImDrawList *drawList, const ImVec2 *points, int count, float
 /** Call straight after BeginPopupModal() returns true: centres the dialog in the window, re-centring whenever its size
 changes (dialogs that grow stay centred) and always keeping it on screen */
 void CenterModal();
+/** Call just before BeginPopupModal(): a dialog taller than the window is capped and scrolls instead */
+void LimitModalHeight();
+
+/** How a wave is shown in a WaveStrip */
+enum StripMark {
+	STRIP_NORMAL,
+	STRIP_BLANK,    // highlighted as a problem
+	STRIP_CHANGED,  // will be or was changed
+	STRIP_PADDING,  // not really part of the table
+	STRIP_KEYFRAME, // a keyframe (diamond marker)
+};
+
+/** A row of waves, one column each, with optional per-wave marks (may be NULL) */
+void WaveStrip(const char *id, const float *samples, int waveCount, const unsigned char *marks, float height = 54.f);
+
+/** Small diamond, used to mark keyframes */
+void Diamond(ImDrawList *drawList, ImVec2 centre, float radius, ImU32 col);
 
 /** Vertical gradient rectangle with optional rounding on the top corners */
 void GradientRect(ImDrawList *drawList, ImVec2 a, ImVec2 b, ImU32 colTop, ImU32 colBottom);

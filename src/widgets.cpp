@@ -376,12 +376,14 @@ void renderBankGrid(const char *name, float height, int gridWidth, float *gridX,
 		}
 		// Draw cell label
 		char label[64];
-		snprintf(label, sizeof(label), "%d", j);
+		snprintf(label, sizeof(label), "%d", j + 1); // numbered 1-32 like the Osiris
 		if (theme.modern) {
 			ImVec2 labelSize = ImGui::CalcTextSize(label) * 0.8f;
 			window->DrawList->AddRectFilled(cellPos + ImVec2(3, 3), cellPos + ImVec2(9 + labelSize.x, 5 + labelSize.y), colAlpha(theme.display, 0.85f), 3.0f);
 		}
 		drawSmallText(cellPos + ImVec2(5, 3), selected ? theme.text : colAlpha(theme.textDim, 0.8f), label);
+		if (currentBank.keyframes[j])
+			ui::Diamond(window->DrawList, ImVec2(cellBox.Max.x - 9.f, cellBox.Min.y + 9.f), 4.5f, theme.modern ? theme.accent : ImGui::GetColorU32(ImGuiCol_PlotHistogram));
 		ImGui::PopClipRect();
 	}
 
@@ -436,8 +438,10 @@ void renderBankGrid(const char *name, float height, int gridWidth, float *gridX,
 				currentBank = dragBank;
 				for (int i = dragStart; i <= dragEnd; i++) {
 					int j = i + offsetId;
-					if (0 <= j && j < BANK_LEN)
+					if (0 <= j && j < BANK_LEN) {
 						currentBank.waves[j] = dragWaves[i];
+						currentBank.keyframes[j] = dragBank.keyframes[i];
+					}
 				}
 				// Move selection
 				selectedId = clampi(dragStart + offsetId, 0, BANK_LEN-1);

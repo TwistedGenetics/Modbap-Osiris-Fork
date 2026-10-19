@@ -244,6 +244,7 @@ void setupView() {
 		ImGui::OpenPopup("Overwrite Originals?");
 		openOverwriteConfirm = false;
 	}
+	ui::LimitModalHeight();
 	if (ImGui::BeginPopupModal("Overwrite Originals?", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ui::CenterModal();
 		ImGui::Text("Replace %d %s in", (int)files.size(), files.size() == 1 ? "file" : "files");
@@ -355,6 +356,7 @@ void batchRenderDialog() {
 		openRequested = false;
 	}
 	ImGui::SetNextWindowContentWidth(640);
+	ui::LimitModalHeight();
 	if (!ImGui::BeginPopupModal("Batch Process Folder", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		closeRequested = false;
 		return;

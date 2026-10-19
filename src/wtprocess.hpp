@@ -68,6 +68,35 @@ void morph(const float *a, const float *b, float t, MorphMode mode, float *out);
 /** Fills the blank runs found by `report`. Returns how many waves were filled. */
 int fillBlanks(float *samples, int waveCount, const BlankReport &report, MorphMode mode, EdgeMode edges);
 
+////////////////////
+// Keyframe morph
+////////////////////
+
+/** How the morph moves between two keyframes */
+enum Curve {
+	LINEAR,
+	EASE_IN,  // starts slowly
+	EASE_OUT, // finishes slowly
+	S_CURVE,  // slow at both ends
+};
+float curve(Curve c, float t);
+
+/** The keyframes to morph between. With a selection of two or more waves (selStart < selEnd), the first and last
+selected waves plus any marked keyframes between them. Otherwise every marked keyframe. Sorted, no duplicates. */
+std::vector<int> keyframesFor(int waveCount, const bool *marked, int selStart, int selEnd);
+
+/** A stretch of waves between two neighbouring keyframes */
+struct Segment {
+	int from, to; // keyframes; the waves strictly between are replaced
+	int count() const { return to - from - 1; }
+};
+/** Segments between neighbouring keyframes that have waves in between */
+std::vector<Segment> segmentsFor(const std::vector<int> &keyframes);
+
+/** Replaces the waves between neighbouring keyframes with morphs from one keyframe to the next. Keyframes are not
+changed. Returns how many waves were written. */
+int morphKeyframes(float *samples, int waveCount, const std::vector<int> &keyframes, MorphMode mode, Curve c);
+
 /** Root-mean-square level of one wave */
 float rms(const float *wave);
 

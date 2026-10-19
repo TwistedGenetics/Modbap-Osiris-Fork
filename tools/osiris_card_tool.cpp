@@ -7,9 +7,12 @@
 //   osiris-card-tool make-test-tables <dir>     (awkward wavetables for testing the batch: blank waves, 24-bit, stereo...)
 //   osiris-card-tool batch <source dir> <output dir> [--no-cycle] [--normalize] [--fill crossfade|spectral] [--edges hold|wrap|leave]
 //   osiris-card-tool verify-batch <source dir> <output dir> [--fill]   (checks the batch output independently)
+//   osiris-card-tool generate <dir> [seeds per type]   (one 32-wave table per generator type and seed, 16-bit 44.1 kHz)
+//   osiris-card-tool verify-generated <dir>            (checks the generator's rules on the written files)
 
 #include "cardio.hpp"
 #include "batch.hpp"
+#include "generator.hpp"
 
 #include <math.h>
 
@@ -498,6 +501,96 @@ static int cmdVerifyBatch(int argc, char **argv) {
 	return problems ? 1 : 0;
 }
 
+////////////////////
+// Generator
+////////////////////
+
+static int cmdGenerate(int argc, char **argv) {
+	if (argc < 3)
+		return 2;
+	std::string dir = argv[2];
+	int perType = argc > 3 ? atoi(argv[3]) : 1;
+	batch::makeDirs(dir);
+	int written = 0;
+	for (int t = 0; t < gen::TYPE_COUNT; t++) {
+		gen::Params p = gen::defaults((gen::Type)t);
+		p.waves = 32;
+		for (int i = 0; i < perType; i++) {
+			p.seed = i == 0 ? 427 : gen::nextSeed(p.seed);
+			std::vector<float> table = gen::generate(p);
+			std::string error;
+			std::string path = dir + "/" + gen::tableName(p) + ".wav";
+			if (!writeWavetable(path, table, error)) {
+				printf("%s\n", error.c_str());
+				return 1;
+			}
+			written++;
+		}
+	}
+	printf("%d tables written to %s\n", written, dir.c_str());
+	return 0;
+}
+
+static int cmdVerifyGenerated(int argc, char **argv) {
+	if (argc < 3)
+		return 2;
+	int problems = 0, files = 0;
+	float worst16 = 1.f / 32768.f * 4.f; // allowance for 16-bit rounding
+	for (const std::string &f : listWavFiles(argv[2])) {
+		std::string name = f.substr(f.find_last_of('/') + 1);
+		Audio a;
+		if (!readAudio(f, a) || a.info.channels != 1 || a.info.samplerate != 44100 || a.info.frames != 32 * 256 ||
+			(a.info.format & SF_FORMAT_SUBMASK) != SF_FORMAT_PCM_16) {
+			printf("FAIL: %s is not a 16-bit 44.1 kHz mono 32 x 256 wavetable\n", name.c_str());
+			problems++;
+			continue;
+		}
+		files++;
+		bool bass = false;
+		for (int t = 0; t < gen::TYPE_COUNT; t++)
+			if (name.compare(0, strlen(gen::typeName((gen::Type)t)) + 1, std::string(gen::typeName((gen::Type)t)) + "_") == 0)
+				bass = gen::isBass((gen::Type)t);
+		float amp[129], ph[129];
+		for (int w = 0; w < 32; w++) {
+			const float *wave = &a.data[w * 256];
+			gen::analyse(wave, amp, ph);
+			float peak = 0.f, maxStep = 0.f;
+			for (int i = 0; i < 256; i++)
+				peak = fmaxf(peak, fabsf(wave[i]));
+			for (int i = 0; i + 1 < 256; i++)
+				maxStep = fmaxf(maxStep, fabsf(wave[i + 1] - wave[i]));
+			float wrap = fabsf(wave[0] - wave[255]);
+			const char *fail = NULL;
+			if (amp[128] > 1e-4f)
+				fail = "has content at the Nyquist bin (not band-limited)";
+			else if (amp[0] > 1e-4f)
+				fail = "has a DC offset";
+			else if (fabsf(peak - gen::PEAK) > worst16)
+				fail = "has a different peak";
+			else if (wt::rms(wave) < 0.05f)
+				fail = "is near-silent";
+			else if (wrap > 1.5f * maxStep + worst16)
+				fail = "clicks at the loop point";
+			if (!fail && bass) {
+				float maxOther = 0.f;
+				for (int k = 2; k < 128; k++)
+					maxOther = fmaxf(maxOther, amp[k]);
+				if (amp[1] < 1.25f * maxOther)
+					fail = "fundamental isn't the loudest harmonic";
+				else if (fabsf(remainderf(ph[1] + 1.5707963f, 6.2831853f)) > 5e-3f)
+					fail = "fundamental phase drifts";
+			}
+			if (fail) {
+				printf("FAIL: %s wave %d %s\n", name.c_str(), w + 1, fail);
+				problems++;
+				break;
+			}
+		}
+	}
+	printf("%d generated tables checked, %d problems\n", files, problems);
+	return (problems || files == 0) ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	if (argc >= 2) {
 		if (!strcmp(argv[1], "export"))
@@ -514,6 +607,10 @@ int main(int argc, char **argv) {
 			return cmdBatch(argc, argv);
 		if (!strcmp(argv[1], "verify-batch"))
 			return cmdVerifyBatch(argc, argv);
+		if (!strcmp(argv[1], "generate"))
+			return cmdGenerate(argc, argv);
+		if (!strcmp(argv[1], "verify-generated"))
+			return cmdVerifyGenerated(argc, argv);
 	}
 	fprintf(stderr, "usage: osiris-card-tool export|verify|open|project-roundtrip|make-test-tables|batch|verify-batch ...\n");
 	return 2;

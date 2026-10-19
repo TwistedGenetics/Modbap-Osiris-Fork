@@ -244,4 +244,73 @@ int fillBlanks(float *samples, int waveCount, const BlankReport &report, MorphMo
 	return filled;
 }
 
+////////////////////
+// Keyframe morph
+////////////////////
+
+float curve(Curve c, float t) {
+	t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+	switch (c) {
+	case EASE_IN:
+		return t * t;
+	case EASE_OUT:
+		return 1.f - (1.f - t) * (1.f - t);
+	case S_CURVE:
+		return t * t * (3.f - 2.f * t);
+	default:
+		return t;
+	}
+}
+
+std::vector<int> keyframesFor(int waveCount, const bool *marked, int selStart, int selEnd) {
+	std::vector<int> keys;
+	if (selStart > selEnd) {
+		int tmp = selStart;
+		selStart = selEnd;
+		selEnd = tmp;
+	}
+	bool range = selStart < selEnd && selStart >= 0 && selEnd < waveCount;
+	int lo = range ? selStart : 0;
+	int hi = range ? selEnd : waveCount - 1;
+	for (int w = lo; w <= hi; w++) {
+		bool key = marked && marked[w];
+		if (range && (w == lo || w == hi))
+			key = true;
+		if (key)
+			keys.push_back(w);
+	}
+	return keys;
+}
+
+std::vector<Segment> segmentsFor(const std::vector<int> &keyframes) {
+	std::vector<Segment> segments;
+	for (size_t i = 0; i + 1 < keyframes.size(); i++) {
+		Segment seg;
+		seg.from = keyframes[i];
+		seg.to = keyframes[i + 1];
+		if (seg.count() > 0)
+			segments.push_back(seg);
+	}
+	return segments;
+}
+
+int morphKeyframes(float *samples, int waveCount, const std::vector<int> &keyframes, MorphMode mode, Curve c) {
+	int written = 0;
+	float tmp[WAVE];
+	for (const Segment &seg : segmentsFor(keyframes)) {
+		if (seg.from < 0 || seg.to >= waveCount)
+			continue;
+		// Copies, so the keyframes stay exactly as they were
+		std::vector<float> a(samples + seg.from * WAVE, samples + (seg.from + 1) * WAVE);
+		std::vector<float> b(samples + seg.to * WAVE, samples + (seg.to + 1) * WAVE);
+		int span = seg.to - seg.from;
+		for (int w = seg.from + 1; w < seg.to; w++) {
+			morph(a.data(), b.data(), curve(c, (float)(w - seg.from) / span), mode, tmp);
+			memcpy(samples + w * WAVE, tmp, sizeof(tmp));
+			written++;
+		}
+	}
+	return written;
+}
+
 } // namespace wt
