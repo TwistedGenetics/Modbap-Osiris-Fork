@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <assert.h>
 #define _USE_MATH_DEFINES
 #include <math.h>

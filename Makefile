@@ -1,6 +1,6 @@
 VERSION = 1.1
 
-FLAGS = -Wall -Wextra -Wno-unused-parameter -g -Wno-unused -O3 -march=nocona -ffast-math \
+FLAGS = -Wall -Wextra -Wno-unused-parameter -g -Wno-unused -O3 -ffast-math -fno-finite-math-only \
 	-DVERSION=$(VERSION) -DPFFFT_SIMD_DISABLE \
 	-I. -Iext -Iext/imgui -Idep/include -Idep/include/SDL2
 CFLAGS =
@@ -18,6 +18,14 @@ SOURCES = \
 	$(wildcard src/*.cpp)
 
 
+# CPU-specific
+# -march=nocona is an Intel-only flag; Apple Silicon (arm64) compilers reject it.
+CPU := $(shell uname -m)
+ifneq (,$(filter x86_64 i686 i386,$(CPU)))
+	FLAGS += -march=nocona
+endif
+
+
 # OS-specific
 include Makefile-arch.inc
 ifeq ($(ARCH),lin)
@@ -29,14 +37,19 @@ ifeq ($(ARCH),lin)
 		-lgtk-x11-2.0 -lgobject-2.0
 	SOURCES += ext/osdialog/osdialog_gtk2.c
 else ifeq ($(ARCH),mac)
-	# Mac
-	FLAGS += -DARCH_MAC \
-		-mmacosx-version-min=10.7
+	# Mac (Apple Silicon or Intel)
+	# Libraries come from Homebrew: brew install sdl2 libsndfile libsamplerate jansson dylibbundler
+	# libcurl is the one that ships with macOS.
+	BREW_PREFIX ?= $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+	MACOS_MIN ?= 11.0
+	FLAGS += -DARCH_MAC -DGL_SILENCE_DEPRECATION \
+		-mmacosx-version-min=$(MACOS_MIN) \
+		-I$(BREW_PREFIX)/include -I$(BREW_PREFIX)/include/SDL2
 	CXXFLAGS += -stdlib=libc++
-	LDFLAGS += -mmacosx-version-min=10.7 \
+	LDFLAGS += -mmacosx-version-min=$(MACOS_MIN) \
 		-stdlib=libc++ -lpthread \
 		-framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo \
-		-Ldep/lib -lSDL2 -lsamplerate -lsndfile -ljansson -lcurl
+		-L$(BREW_PREFIX)/lib -lSDL2 -lsamplerate -lsndfile -ljansson -lcurl
 	SOURCES += ext/osdialog/osdialog_mac.m
 else ifeq ($(ARCH),win)
 	# Windows
@@ -92,22 +105,19 @@ ifeq ($(ARCH),lin)
 else ifeq ($(ARCH),mac)
 	mkdir -p dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
 	mkdir -p dist/OsirisEdit/OsirisEdit.app/Contents/Resources
+	mkdir -p dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks
 	cp Info.plist dist/OsirisEdit/OsirisEdit.app/Contents
 	cp OsirisEdit dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
 	cp -R logo*.png logo.icns fonts catalog dist/OsirisEdit/OsirisEdit.app/Contents/Resources
-	# Remap dylibs in executable
+	# Copy the Homebrew dylibs (and everything they depend on) into the bundle and repoint the binary at them
+	dylibbundler -of -b -cd \
+		-x dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit \
+		-d dist/OsirisEdit/OsirisEdit.app/Contents/Frameworks \
+		-p @executable_path/../Frameworks/
 	otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	cp dep/lib/libSDL2-2.0.0.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
-	install_name_tool -change $(PWD)/dep/lib/libSDL2-2.0.0.dylib @executable_path/libSDL2-2.0.0.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	cp dep/lib/libsamplerate.0.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
-	install_name_tool -change $(PWD)/dep/lib/libsamplerate.0.dylib @executable_path/libsamplerate.0.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	cp dep/lib/libsndfile.1.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
-	install_name_tool -change $(PWD)/dep/lib/libsndfile.1.dylib @executable_path/libsndfile.1.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	cp dep/lib/libjansson.4.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
-	install_name_tool -change $(PWD)/dep/lib/libjansson.4.dylib @executable_path/libjansson.4.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	cp dep/lib/libcurl.4.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS
-	install_name_tool -change $(PWD)/dep/lib/libcurl.4.dylib @executable_path/libcurl.4.dylib dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
-	otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
+	# arm64 code must be signed to run; ad-hoc signing is enough for local use
+	codesign --force --deep --sign - dist/OsirisEdit/OsirisEdit.app
+	codesign --verify --deep --strict dist/OsirisEdit/OsirisEdit.app
 else ifeq ($(ARCH),win)
 	cp -R logo*.png fonts catalog dist/OsirisEdit
 	cp OsirisEdit.exe dist/OsirisEdit
@@ -120,7 +130,7 @@ else ifeq ($(ARCH),win)
 	cp dep/bin/libjansson-4.dll dist/OsirisEdit
 	cp dep/bin/libcurl-4.dll dist/OsirisEdit
 endif
-	cd dist && zip -9 -r OsirisEdit-$(VERSION)-$(ARCH).zip OsirisEdit
+	cd dist && zip -9 -r -y OsirisEdit-$(VERSION)-$(ARCH)-$(CPU).zip OsirisEdit
 
 
 # SUFFIXES:

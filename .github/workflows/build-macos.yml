@@ -1,0 +1,51 @@
+name: Build macOS (Apple Silicon)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14   # arm64 (M1) runner
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install sdl2 libsndfile libsamplerate jansson dylibbundler
+
+      - name: Build
+        run: make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Check architecture
+        run: |
+          file OsirisEdit
+          lipo -archs OsirisEdit | grep -q arm64
+
+      - name: Package app
+        run: make dist
+
+      - name: Check bundle
+        run: |
+          otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit
+          # Fail if anything still points at Homebrew instead of the bundled copies
+          ! otool -L dist/OsirisEdit/OsirisEdit.app/Contents/MacOS/OsirisEdit | grep -q /opt/homebrew
+          ls dist/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OsirisEdit-macos-arm64
+          path: dist/*.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
