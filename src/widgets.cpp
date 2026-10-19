@@ -3,10 +3,32 @@
 #include "imgui.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui_internal.h"
+#include "theme.hpp"
 
 
 
-static void drawGrid(ImRect inner, int len) {
+/** Background panel for a graph display */
+static void drawDisplay(ImRect box) {
+	ImDrawList *drawList = ImGui::GetWindowDrawList();
+	float rounding = ImGui::GetStyle().FrameRounding;
+	drawList->AddRectFilled(box.Min, box.Max, theme.display, rounding);
+	if (theme.outline)
+		drawList->AddRect(box.Min, box.Max, theme.outline, rounding);
+}
+
+/** Small text used for grid and cell labels */
+static void drawSmallText(ImVec2 pos, ImU32 col, const char *text) {
+	ImDrawList *drawList = ImGui::GetWindowDrawList();
+	if (theme.fontHeading)
+		drawList->AddText(theme.fontHeading, theme.fontHeading->FontSize * ImGui::GetIO().FontGlobalScale, pos, col, text);
+	else
+		drawList->AddText(pos, col, text);
+}
+
+/** Vertical grid lines with numbers. `labelY` is where the numbers go (defaults to the top of `inner`). */
+static void drawGrid(ImRect inner, int len, float labelY = -1.0) {
+	if (labelY < 0.0)
+		labelY = inner.Min.y;
 	ImGuiWindow *window = ImGui::GetCurrentWindow();
 	// Compute number of points to skip, should be a power of 2
 	int skip;
@@ -21,20 +43,22 @@ static void drawGrid(ImRect inner, int len) {
 		float gridX = rescalef(i, 0, len, inner.Min.x, inner.Max.x);
 		// Grid line
 		int thicknessIndex = i / skip;
+		bool major = (thicknessIndex % 8 == 0);
 		float thickness;
-		if (thicknessIndex % 64 == 0)
+		if (theme.modern)
+			thickness = 1.0;
+		else if (thicknessIndex % 64 == 0)
 			thickness = 3.0;
-		else if (thicknessIndex % 8 == 0)
+		else if (major)
 			thickness = 2.0;
 		else
 			thickness = 1.0;
-		window->DrawList->AddLine(ImVec2(gridX, inner.Min.y), ImVec2(gridX, inner.Max.y), ImGui::GetColorU32(ImGuiCol_WindowBg), thickness);
+		window->DrawList->AddLine(ImVec2(gridX, inner.Min.y), ImVec2(gridX, inner.Max.y), major ? theme.gridStrong : theme.grid, thickness);
 		// Text
 		if (i < len) {
 			char label[64];
 			snprintf(label, sizeof(label), "%d", i);
-			ImVec2 labelPos = ImVec2(gridX, inner.Min.y) + ImVec2(4, -1);
-			window->DrawList->AddText(labelPos, ImGui::GetColorU32(ImGuiCol_PlotLines), label);
+			drawSmallText(ImVec2(gridX, labelY) + ImVec2(4, 1), colAlpha(theme.textDim, theme.modern ? 0.6f : 1.f), label);
 		}
 	}
 }
@@ -165,51 +189,48 @@ bool renderWave(const char *name, float height, float *points, int pointsLen, co
 	ImVec2 size = ImVec2(ImGui::CalcItemWidth(), height);
 	ImRect box = ImRect(window->DC.CursorPos, window->DC.CursorPos + size);
 	ImRect inner = ImRect(box.Min + style.FramePadding, box.Max - style.FramePadding);
+	if (theme.modern)
+		inner.Min.y += 14.0; // room for the grid numbers
 	ImGui::ItemSize(box, style.FramePadding.y);
 	if (!ImGui::ItemAdd(box, NULL))
 		return false;
 
-	// Draw frame
-	ImGui::RenderFrame(box.Min, box.Max, ImGui::GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
-
-	// // Tooltip
-	// if (ImGui::IsHovered(box, 0)) {
-	// 	ImVec2 mousePos = ImGui::GetMousePos();
-	// 	float x = rescalef(mousePos.x, inner.Min.x, inner.Max.x, 0, pointsLen-1);
-	// 	int xi = (int)clampf(x, 0, pointsLen-2);
-	// 	float xf = x - xi;
-	// 	float y = crossf(values[xi], values[xi+1], xf);
-	// 	ImGui::SetTooltip("%f, %f\n", x, y);
-	// }
-
-	// const bool hovered = ImGui::IsHovered(box, id);
-	// if (hovered) {
-	// 	ImGui::SetHoveredID(id);
-	// 	ImGui::SetActiveID(id, window);
-	// }
-
+	drawDisplay(box);
 	bool edited = editorBehavior(id, box, inner, points, pointsLen, 0.0, pointsLen - 1, 1.0, -1.0, tool);
 
 	ImGui::PushClipRect(box.Min, box.Max, true);
-	// Draw lines
-	if (lines) {
-		ImVec2 lastPos;
-		for (int i = 0; i < linesLen; i++) {
-			ImVec2 pos = ImVec2(rescalef(i, 0, linesLen, inner.Min.x, inner.Max.x), rescalef(lines[i], 1.0, -1.0, inner.Min.y, inner.Max.y));
-			if (i > 0)
-				window->DrawList->AddLine(lastPos, pos, ImGui::GetColorU32(ImGuiCol_PlotLines));
-			lastPos = pos;
-		}
+	ImDrawList *drawList = window->DrawList;
+	float zeroY = (inner.Min.y + inner.Max.y) / 2.0;
+
+	// Grid and level lines
+	drawGrid(inner, pointsLen, theme.modern ? inner.Min.y - 14.0 : -1.0);
+	drawList->AddLine(ImVec2(inner.Min.x, zeroY), ImVec2(inner.Max.x, zeroY), theme.gridStrong);
+	for (int k = -1; k <= 1; k += 2) {
+		float y = rescalef(0.5 * k, 1.0, -1.0, inner.Min.y, inner.Max.y);
+		drawList->AddLine(ImVec2(inner.Min.x, y), ImVec2(inner.Max.x, y), theme.grid);
 	}
-	// Draw points
+
+	// Output waveform (after effects): gradient fill to the centre line, then a glowing line
+	if (lines && linesLen > 1) {
+		ImVector<ImVec2> pts;
+		pts.resize(linesLen);
+		for (int i = 0; i < linesLen; i++) {
+			pts[i] = ImVec2(rescalef(i, 0, linesLen, inner.Min.x, inner.Max.x), rescalef(lines[i], 1.0, -1.0, inner.Min.y, inner.Max.y));
+		}
+		if (theme.modern)
+			ui::FillUnderCurve(drawList, pts.Data, linesLen, zeroY, colAlpha(theme.accent, 0.30f), colAlpha(theme.accent, 0.02f));
+		ui::GlowPolyline(drawList, pts.Data, linesLen, theme.modern ? theme.accent : ImGui::GetColorU32(ImGuiCol_PlotLines), theme.modern ? 1.75f : 1.0f);
+	}
+
+	// Editable points (before effects)
 	if (points) {
+		ImU32 pointCol = theme.modern ? colAlpha(theme.text, 0.45f) : ImGui::GetColorU32(ImGuiCol_PlotLines);
+		float radius = theme.modern ? 1.5f : 2.0f;
 		for (int i = 0; i < pointsLen; i++) {
 			ImVec2 pos = ImVec2(rescalef(i, 0, pointsLen, inner.Min.x, inner.Max.x), rescalef(points[i], 1.0, -1.0, inner.Min.y, inner.Max.y));
-			window->DrawList->AddCircleFilled(pos + ImVec2(0.5, 0.5), 2.0, ImGui::GetColorU32(ImGuiCol_PlotLines), 12);
+			drawList->AddCircleFilled(pos + ImVec2(0.5, 0.5), radius, pointCol, 8);
 		}
 	}
-	// Draw grid
-	drawGrid(inner, pointsLen);
 
 	ImGui::PopClipRect();
 
@@ -228,34 +249,51 @@ bool renderHistogram(const char *name, float height, float *bars, int barsLen, c
 	ImVec2 size = ImVec2(ImGui::CalcItemWidth(), height);
 	ImRect box = ImRect(pos, pos + size);
 	ImRect inner = ImRect(box.Min + style.FramePadding, box.Max - style.FramePadding);
+	if (theme.modern)
+		inner.Min.y += 14.0; // room for the grid numbers
 	ImGui::ItemSize(box, style.FramePadding.y);
 	if (!ImGui::ItemAdd(box, NULL))
 		return false;
 
 	bool edited = editorBehavior(id, box, inner, bars, barsLen, -0.5, barsLen - 0.5, 1.0, 0.0, tool);
 
-	// Draw frame
-	ImGui::RenderFrame(box.Min, box.Max, ImGui::GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
-
-	// Draw bars
+	drawDisplay(box);
+	ImDrawList *drawList = window->DrawList;
 	ImGui::PushClipRect(box.Min, box.Max, true);
-	const float rounding = 0.0;
+	drawGrid(inner, barsLen, theme.modern ? inner.Min.y - 14.0 : -1.0);
+
+	float barWidth = (inner.Max.x - inner.Min.x) / barsLen;
+	float gap = (theme.modern && barWidth > 5.0) ? 2.0 : 1.0;
+	// Bars
 	for (int i = 0; i < barsLen; i++) {
 		float value = bars[i];
 		ImVec2 pos0 = ImVec2(rescalef(i, 0, barsLen, inner.Min.x, inner.Max.x), rescalef(value, 0.0, 1.0, inner.Max.y, inner.Min.y));
-		ImVec2 pos1 = ImVec2(rescalef(i + 1, 0, barsLen, inner.Min.x, inner.Max.x) - 1, inner.Max.y);
-		window->DrawList->AddRectFilled(pos0, pos1, ImGui::GetColorU32(ImGuiCol_PlotHistogram), rounding);
+		ImVec2 pos1 = ImVec2(rescalef(i + 1, 0, barsLen, inner.Min.x, inner.Max.x) - gap, inner.Max.y);
+		if (pos1.y - pos0.y < 0.5)
+			continue;
+		if (theme.modern) {
+			ui::GradientRect(drawList, pos0, pos1, colAlpha(theme.accent, 0.95f), colAlpha(theme.accent2, 0.35f));
+			drawList->AddRectFilled(pos0, ImVec2(pos1.x, pos0.y + 2.0), theme.accent);
+		}
+		else {
+			drawList->AddRectFilled(pos0, pos1, ImGui::GetColorU32(ImGuiCol_PlotHistogram));
+		}
 	}
-	// Draw ghost bars
+	// Ghost bars (the result after effects)
 	for (int i = 0; i < ghostLen; i++) {
 		float value = ghost[i];
 		ImVec2 pos0 = ImVec2(rescalef(i, 0, ghostLen, inner.Min.x, inner.Max.x), rescalef(value, 0.0, 1.0, inner.Max.y, inner.Min.y));
-		ImVec2 pos1 = ImVec2(rescalef(i + 1, 0, ghostLen, inner.Min.x, inner.Max.x) - 1, inner.Max.y);
-		window->DrawList->AddRectFilled(pos0, pos1, ImGui::GetColorU32(ImGuiCol_PlotHistogramHovered), rounding);
+		ImVec2 pos1 = ImVec2(rescalef(i + 1, 0, ghostLen, inner.Min.x, inner.Max.x) - gap, inner.Max.y);
+		if (theme.modern) {
+			if (pos1.y - pos0.y < 0.5)
+				continue;
+			drawList->AddRectFilled(pos0, pos1, colAlpha(theme.text, 0.05f));
+			drawList->AddRectFilled(pos0, ImVec2(pos1.x, pos0.y + 1.5), colAlpha(theme.text, 0.75f));
+		}
+		else {
+			drawList->AddRectFilled(pos0, pos1, ImGui::GetColorU32(ImGuiCol_PlotHistogramHovered));
+		}
 	}
-	// Draw grid
-	drawGrid(inner, barsLen);
-
 	ImGui::PopClipRect();
 
 	return edited;
@@ -313,29 +351,37 @@ void renderBankGrid(const char *name, float height, int gridWidth, float *gridX,
 		// Compute cell box
 		ImVec2 cellPos = ImVec2(box.Min.x + cellSize.x * x, box.Min.y + cellSize.y * y);
 		ImRect cellBox = ImRect(cellPos, cellPos + cellSize - padding);
-		ImU32 col = ImGui::GetColorU32(ImGuiCol_FrameBg);
-		if (selectedStart <= j && j <= selectedEnd) {
-			col = ImGui::GetColorU32(ImGuiCol_WindowBg);
-		}
-		ImGui::RenderFrame(cellBox.Min, cellBox.Max, col, true, ImGui::GetStyle().FrameRounding);
+		bool selected = (selectedStart <= j && j <= selectedEnd);
+		float rounding = ImGui::GetStyle().FrameRounding;
+		window->DrawList->AddRectFilled(cellBox.Min, cellBox.Max, selected ? theme.displayHi : theme.display, rounding);
+		if (theme.modern)
+			window->DrawList->AddRect(cellBox.Min, cellBox.Max, selected ? colAlpha(theme.accent, 0.8f) : theme.outline, rounding, ~0, selected ? 1.5f : 1.0f);
 
-		// Draw lines
+		// Draw the wave
 		ImGui::PushClipRect(cellBox.Min, cellBox.Max, true);
-		ImVec2 lastPos;
+		ImVec2 cellPoints[WAVE_LEN];
+		float margin = 3.0;
 		for (int i = 0; i < WAVE_LEN; i++) {
 			float value = currentBank.waves[j].postSamples[i];
-			float margin = 3.0;
-			ImVec2 pos = ImVec2(rescalef(i, 0, WAVE_LEN - 1, cellBox.Min.x, cellBox.Max.x), rescalef(value, 1.0, -1.0, cellBox.Min.y + margin, cellBox.Max.y - margin));
-			if (i > 0)
-				window->DrawList->AddLine(lastPos, pos, ImGui::GetColorU32(ImGuiCol_PlotLines));
-			lastPos = pos;
+			cellPoints[i] = ImVec2(rescalef(i, 0, WAVE_LEN - 1, cellBox.Min.x, cellBox.Max.x), rescalef(value, 1.0, -1.0, cellBox.Min.y + margin, cellBox.Max.y - margin));
 		}
-
+		if (theme.modern) {
+			ImU32 waveCol = selected ? theme.accent : colAlpha(colMix(theme.accent, theme.textDim, 0.35f), 0.85f);
+			if (selected)
+				ui::FillUnderCurve(window->DrawList, cellPoints, WAVE_LEN, (cellBox.Min.y + cellBox.Max.y) / 2.0, colAlpha(theme.accent, 0.22f), colAlpha(theme.accent, 0.0f));
+			window->DrawList->AddPolyline(cellPoints, WAVE_LEN, waveCol, false, selected ? 1.5f : 1.1f, true);
+		}
+		else {
+			window->DrawList->AddPolyline(cellPoints, WAVE_LEN, ImGui::GetColorU32(ImGuiCol_PlotLines), false, 1.0f, true);
+		}
 		// Draw cell label
 		char label[64];
 		snprintf(label, sizeof(label), "%d", j);
-		ImVec2 labelPos = cellPos + ImVec2(2, 2);
-		window->DrawList->AddText(labelPos, ImGui::GetColorU32(ImGuiCol_PlotLines), label);
+		if (theme.modern) {
+			ImVec2 labelSize = ImGui::CalcTextSize(label) * 0.8f;
+			window->DrawList->AddRectFilled(cellPos + ImVec2(3, 3), cellPos + ImVec2(9 + labelSize.x, 5 + labelSize.y), colAlpha(theme.display, 0.85f), 3.0f);
+		}
+		drawSmallText(cellPos + ImVec2(5, 3), selected ? theme.text : colAlpha(theme.textDim, 0.8f), label);
 		ImGui::PopClipRect();
 	}
 
@@ -436,7 +482,14 @@ void renderBankGrid(const char *name, float height, int gridWidth, float *gridX,
 		ImVec2 circlePos = ImVec2(
 			rescalef(*gridX, 0.0, gridWidth, box.Min.x, box.Max.x),
 			rescalef(*gridY, 0.0, gridHeight, box.Min.y, box.Max.y)) + cellSize / 2.0;
-		ImGui::GetWindowDrawList()->AddCircleFilled(circlePos, 8.0, ImGui::GetColorU32(ImGuiCol_ScrollbarGrab), 24);
+		if (theme.modern) {
+			ImGui::GetWindowDrawList()->AddCircleFilled(circlePos, 11.0, colAlpha(theme.accent, 0.18f), 24);
+			ImGui::GetWindowDrawList()->AddCircleFilled(circlePos, 5.5, theme.accent, 24);
+			ImGui::GetWindowDrawList()->AddCircle(circlePos, 5.5, theme.text, 24, 1.5f);
+		}
+		else {
+			ImGui::GetWindowDrawList()->AddCircleFilled(circlePos, 8.0, ImGui::GetColorU32(ImGuiCol_ScrollbarGrab), 24);
+		}
 	}
 
 	// Right click context menu
@@ -463,6 +516,8 @@ void renderWaterfall(const char *name, float height, float amplitude, float angl
 	ImRect box = ImRect(window->DC.CursorPos, window->DC.CursorPos + size);
 	ImRect inner = ImRect(box.Min + style.FramePadding, box.Max - style.FramePadding);
 
+	if (theme.modern)
+		drawDisplay(box);
 	ImGui::PushClipRect(box.Min, box.Max, true);
 
 	// Behavior
@@ -512,7 +567,7 @@ void renderWaterfall(const char *name, float height, float amplitude, float angl
 			points[i] = point;
 		}
 		float thickness = 1.0;
-		window->DrawList->AddPolyline(points, WAVE_LEN, ImGui::GetColorU32(ImGuiCol_FrameBg), false, thickness, true);
+		window->DrawList->AddPolyline(points, WAVE_LEN, theme.modern ? colAlpha(theme.textDim, 0.12f) : ImGui::GetColorU32(ImGuiCol_FrameBg), false, thickness, true);
 	}
 
 	// Post-effect plots
@@ -526,8 +581,20 @@ void renderWaterfall(const char *name, float height, float amplitude, float angl
 			ImVec2 point = ImVec2(rescalef(a.x, -1.0, 1.0, box.Min.x, box.Max.x), rescalef(a.y, 1.0, -1.0, box.Min.y, box.Max.y));
 			points[i] = point;
 		}
-		float thickness = 1.0 + 4.0 * fmaxf(1.0 - fabsf(b - *activeZ), 0.0);
-		window->DrawList->AddPolyline(points, WAVE_LEN, ImGui::GetColorU32(ImGuiCol_PlotHistogram), false, thickness, true);
+		float active = fmaxf(1.0 - fabsf(b - *activeZ), 0.0);
+		if (theme.modern) {
+			// Colour runs from accent2 at the back to accent at the front; the active wave glows
+			ImU32 col = colMix(theme.accent2, theme.accent, (float)b / fmaxf(BANK_LEN - 1, 1));
+			col = colMix(colAlpha(col, 0.75f), theme.text, active * 0.6f);
+			if (active > 0.0)
+				ui::GlowPolyline(window->DrawList, points, WAVE_LEN, col, 1.2f + 1.8f * active);
+			else
+				window->DrawList->AddPolyline(points, WAVE_LEN, col, false, 1.2f, true);
+		}
+		else {
+			float thickness = 1.0 + 4.0 * active;
+			window->DrawList->AddPolyline(points, WAVE_LEN, ImGui::GetColorU32(ImGuiCol_PlotHistogram), false, thickness, true);
+		}
 	}
 
 	ImGui::PopClipRect();
@@ -573,22 +640,18 @@ float renderBankWave(const char *name, float height, const float *lines, int lin
 		}
 	}
 
-	// Draw frame
-	ImGui::RenderFrame(box.Min, box.Max, ImGui::GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
-
+	drawDisplay(box);
 	ImGui::PushClipRect(box.Min, box.Max, true);
 
 	// Draw lines
-	if (lines) {
-		ImVec2 lastPos;
+	if (lines && linesLen > 1) {
+		ImVector<ImVec2> pts;
+		pts.resize(linesLen);
 		for (int i = 0; i < linesLen; i++) {
-			ImVec2 pos = ImVec2(rescalef(i, 0, linesLen, inner.Min.x, inner.Max.x), rescalef(lines[i], 1.0, -1.0, inner.Min.y, inner.Max.y));
-			if (i > 0)
-				window->DrawList->AddLine(lastPos, pos, ImGui::GetColorU32(ImGuiCol_PlotLines));
-			lastPos = pos;
+			pts[i] = ImVec2(rescalef(i, 0, linesLen, inner.Min.x, inner.Max.x), rescalef(lines[i], 1.0, -1.0, inner.Min.y, inner.Max.y));
 		}
+		window->DrawList->AddPolyline(pts.Data, linesLen, theme.modern ? theme.accent : ImGui::GetColorU32(ImGuiCol_PlotLines), false, theme.modern ? 1.25f : 1.0f, true);
 	}
-
 	// Draw grid
 	ImRect gridInner = inner;
 	gridInner.Min.x = rescalef(bankStart, 0, linesLen, inner.Min.x, inner.Max.x);

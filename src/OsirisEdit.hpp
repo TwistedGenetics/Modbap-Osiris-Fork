@@ -303,6 +303,9 @@ void renderWaveMenu();
 void uiInit();
 void uiDestroy();
 void uiRender();
+/** Screenshot mode, used by CI. Call after ImGui::Render(). Returns true when every page has been saved. */
+struct SDL_Window;
+bool uiScreenshotStep(SDL_Window *window, const char *dir);
 
 // Selections span the range between these indices
 extern int selectedId;

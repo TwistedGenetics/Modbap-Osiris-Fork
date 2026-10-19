@@ -3,6 +3,7 @@
 #include "imgui.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui_internal.h"
+#include "theme.hpp"
 
 #include <libgen.h>
 #include "osdialog/osdialog.h"
@@ -178,13 +179,14 @@ void importPage() {
 			}
 		}
 		ImGui::SameLine();
-		ImGui::Text("%s", status);
+		ImGui::AlignFirstTextHeightToWidgets();
+		ImGui::TextDisabled("%s", status);
 
 		playingBank = &importBank;
 		float amp = powf(10.0, gain / 20.0);
 
 		// Audio preview
-		ImGui::Text("Imported Audio Preview");
+		ui::SectionHeading("Imported Audio");
 		if (audioPreview) {
 			float audioPreviewGain[MAX_BANK_LEN * WAVE_LEN] = {};
 			for (int i = 0; i < BANK_LEN * WAVE_LEN; i++) {
@@ -209,7 +211,7 @@ void importPage() {
 		}
 
 		// Wavetable preview
-		ImGui::Text("Wavetable Preview");
+		ui::SectionHeading("Wavetable Preview");
 		// Initialize from previous bank
 		float bankSamples[BANK_LEN * WAVE_LEN];
 		computeImport(bankSamples);
@@ -222,7 +224,7 @@ void importPage() {
 		offset -= deltaBank * zoom / audioLen * (BANK_LEN * WAVE_LEN);
 
 		if (audio) {
-			ImGui::Text("Import Settings");
+			ui::SectionHeading("Import Settings");
 			// Gain
 			if (ImGui::Button("Reset Gain")) gain = 0.0;
 			ImGui::SameLine();
@@ -230,10 +232,10 @@ void importPage() {
 				gain = clampf(-20.0 * log10f(getAudioAmplitude()), -40.0, 40.0);
 			}
 			ImGui::SameLine();
-			ImGui::SliderFloat("##gain", &gain, -40.0, 40.0, "Gain: %.2fdB");
+			ui::Slider("##gain", "Gain", &gain, -40.0, 40.0, "%.2f dB");
 
 			// Offset
-			ImGui::SliderFloat("##offset", &offset, 0.0, 1.0, "Offset: %.4f");
+			ui::Slider("##offset", "Offset", &offset, 0.0, 1.0, "%.4f");
 
 			// Zoom
 			if (ImGui::Button("Zoom 1:1")) zoom = 1.0;
@@ -245,7 +247,7 @@ void importPage() {
 			ImGui::SameLine();
 			ImGui::Checkbox("Snap to Power of 2", &snapZoom);
 			ImGui::SameLine();
-			ImGui::SliderFloat("##zoom", &zoom, 0.01, 100.0, "Zoom: %.4f", 0.0);
+			ui::Slider("##zoom", "Zoom", &zoom, 0.01, 100.0, "%.4f", 0.0);
 			if (snapZoom) {
 				zoom = powf(2.0, roundf(log2f(zoom)));
 			}
@@ -266,9 +268,9 @@ void importPage() {
 			ImGui::PushItemWidth(-1.0);
 			float width = ImGui::CalcItemWidth() / 2.0 - ImGui::GetStyle().FramePadding.y;
 			ImGui::PushItemWidth(width);
-			ImGui::SliderFloat("##leftTrim", &leftTrim, 0.0, BANK_LEN, snapTrim ? "Left Trim: %.0f" : "Left Trim: %.2f");
+			ui::Slider("##leftTrim", "Left Trim", &leftTrim, 0.0, BANK_LEN, snapTrim ? "%.0f" : "%.2f");
 			ImGui::SameLine();
-			ImGui::SliderFloat("##rightTrim", &rightTrim, 0.0, BANK_LEN, snapTrim ? "Right Trim: %.0f" : "Right Trim: %.2f");
+			ui::Slider("##rightTrim", "Right Trim", &rightTrim, 0.0, BANK_LEN, snapTrim ? "%.0f" : "%.2f");
 			ImGui::PopItemWidth();
 			ImGui::PopItemWidth();
 

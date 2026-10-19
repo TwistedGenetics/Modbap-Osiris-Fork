@@ -2,7 +2,9 @@
 
 The modified wavetable and bank editor for the Osiris Eurorack synthesizer modules.
 
-This fork adds a native Apple Silicon (arm64) build for macOS 11 and later.
+This fork adds a native Apple Silicon (arm64) build for macOS 11 and later, and a modern dark interface (the classic colour schemes are still under Colors).
+
+![OsirisEdit waveform editor](https://raw.githubusercontent.com/TwistedGenetics/Modbap-Osiris-Fork/screenshots/0-editor.png)
 
 ### Download (Apple Silicon Mac)
 

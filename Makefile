@@ -1,7 +1,7 @@
 VERSION = 1.1
 
 FLAGS = -Wall -Wextra -Wno-unused-parameter -g -Wno-unused -O3 -ffast-math -fno-finite-math-only \
-	-DVERSION=$(VERSION) -DPFFFT_SIMD_DISABLE \
+	-DVERSION=$(VERSION) -DPFFFT_SIMD_DISABLE -DImDrawIdx=ImU32 \
 	-I. -Iext -Iext/imgui -Idep/include -Idep/include/SDL2
 CFLAGS =
 CXXFLAGS = -std=c++11

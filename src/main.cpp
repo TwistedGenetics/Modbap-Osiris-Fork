@@ -61,10 +61,15 @@ int main(int argc, char **argv) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 	SDL_DisplayMode current;
 	SDL_GetCurrentDisplayMode(0, &current);
+	// Screenshot mode (OSIRIS_SCREENSHOTS=<dir>): fixed window size, save a PNG of each page, then quit
+	const char *screenshotDir = getenv("OSIRIS_SCREENSHOTS");
+	Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
+	if (!screenshotDir)
+		windowFlags |= SDL_WINDOW_MAXIMIZED;
 	SDL_Window *window = SDL_CreateWindow("",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		1024, 768,
-		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+		screenshotDir ? 1440 : 1024, screenshotDir ? 900 : 768,
+		windowFlags);
 	assert(window);
 	SDL_SetWindowMinimumSize(window, 800, 600);
 	SDL_GLContext glContext = SDL_GL_CreateContext(window);
@@ -79,7 +84,10 @@ int main(int argc, char **argv) {
 	// Initialize modules
 	uiInit();
 	historyClear();
-	currentBank.load("autosave.dat");
+	if (screenshotDir)
+		currentBank.loadWAV("banks/ROM A.wav");
+	else
+		currentBank.load("autosave.dat");
 	historyPush();
 	catalogInit();
 	audioInit();
@@ -132,10 +140,13 @@ int main(int argc, char **argv) {
 		glClearColor(0.0, 0.0, 0.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 		ImGui::Render();
+		if (screenshotDir && uiScreenshotStep(window, screenshotDir))
+			running = false;
 		SDL_GL_SwapWindow(window);
 	}
 
-	currentBank.save("autosave.dat");
+	if (!screenshotDir)
+		currentBank.save("autosave.dat");
 
 	// Cleanup
 	uiDestroy();

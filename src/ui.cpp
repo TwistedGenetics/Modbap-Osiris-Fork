@@ -14,6 +14,7 @@
 #include "imgui.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui_internal.h"
+#include "theme.hpp"
 
 #include "osdialog/osdialog.h"
 
@@ -502,6 +503,7 @@ void renderMenu()
 		ImVec2 padding = ImVec2(7, 4);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0, 0));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]);
 		ImGui::SetNextWindowPos(ImVec2(0, 0));
 		ImGui::SetNextWindowSize(ImVec2(width + 2 * padding.x, height + 2 * padding.y));
 		if (ImGui::Begin("Logo", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoInputs))
@@ -509,6 +511,7 @@ void renderMenu()
 			ImGui::Image(logoTexture, ImVec2(width, height));
 			ImGui::End();
 		}
+		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
 		ImGui::PopStyleVar();
 	}
@@ -569,6 +572,11 @@ void renderMenu()
 		// Colors
 		if (ImGui::BeginMenu("Colors"))
 		{
+			if (ImGui::MenuItem("Modern", NULL, styleId == 4))
+			{
+				styleId = 4;
+				refreshStyle();
+			}
 			if (ImGui::MenuItem("Dark", NULL, styleId == 0))
 			{
 				styleId = 0;
@@ -822,55 +830,55 @@ void renderPopup()
 
 void renderPreview()
 {
-	ImGui::Checkbox("Play", &playEnabled);
+	// Play toggle
+	bool playing = playEnabled;
+	ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(playing ? colAlpha(theme.accent, 0.22f) : theme.control));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::ColorConvertU32ToFloat4(playing ? colAlpha(theme.accent, 0.30f) : theme.controlHover));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(playing ? theme.accent : theme.text));
+	if (ImGui::Button(playing ? "Playing" : "Play", ImVec2(96, 0)))
+		playEnabled = !playEnabled;
+	ImGui::PopStyleColor(3);
+
 	ImGui::SameLine();
-	ImGui::PushItemWidth(300.0);
-	ImGui::SliderFloat("##playVolume", &playVolume, -60.0f, 0.0f, "Volume: %.2f dB");
+	ImGui::PushItemWidth(260.0);
+	ui::Slider("##playVolume", "Volume", &playVolume, -60.0f, 0.0f, "%.1f dB");
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
 	ImGui::PushItemWidth(-1.0);
-	ImGui::SameLine();
-	ImGui::SliderFloat("##playFrequency", &playFrequency, 1.0f, 10000.0f, "Frequency: %.2f Hz", 0.0f);
+	ui::Slider("##playFrequency", "Frequency", &playFrequency, 1.0f, 10000.0f, "%.1f Hz", 0.0f);
+	ImGui::PopItemWidth();
 
 	ImGui::Checkbox("Morph Interpolate", &morphInterpolate);
+	ImGui::SameLine(0, 12);
+	float width = (ImGui::GetContentRegionAvailWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+	ImGui::PushItemWidth(width);
 	if (playModeXY)
 	{
+		ui::Slider("##Morph X", "Morph X", &morphX, 0.0, BANK_GRID_WIDTH - 1, "%.3f");
 		ImGui::SameLine();
-		ImGui::PushItemWidth(-1.0);
-		float width = ImGui::CalcItemWidth() / 2.0 - ImGui::GetStyle().FramePadding.y;
-		ImGui::PushItemWidth(width);
-		ImGui::SliderFloat("##Morph X", &morphX, 0.0, BANK_GRID_WIDTH - 1, "Morph X: %.3f");
-		ImGui::SameLine();
-		ImGui::SliderFloat("##Morph Y", &morphY, 0.0, BANK_GRID_HEIGHT - 1, "Morph Y: %.3f");
+		ui::Slider("##Morph Y", "Morph Y", &morphY, 0.0, BANK_GRID_HEIGHT - 1, "%.3f");
 	}
 	else
 	{
+		ui::Slider("##Morph Z", "Morph Z", &morphZ, 0.0, BANK_LEN - 1, "%.3f");
 		ImGui::SameLine();
-		ImGui::PushItemWidth(-1.0);
-		float width = ImGui::CalcItemWidth() / 2.0 - ImGui::GetStyle().FramePadding.y;
-		ImGui::PushItemWidth(width);
-		ImGui::SliderFloat("##Morph Z", &morphZ, 0.0, BANK_LEN - 1, "Morph Z: %.3f");
-		ImGui::SameLine();
-		ImGui::SliderFloat("##Morph Z Speed", &morphZSpeed, 0.f, 10.f, "Morph Z Speed: %.3f Hz", 3.f);
+		ui::Slider("##Morph Z Speed", "Morph Z Speed", &morphZSpeed, 0.f, 10.f, "%.3f Hz", 3.f);
 	}
+	ImGui::PopItemWidth();
 
 	refreshMorphSnap();
 }
 
 void renderToolSelector(Tool *tool)
 {
-	if (ImGui::RadioButton("Pencil", *tool == PENCIL_TOOL))
-		*tool = PENCIL_TOOL;
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Brush", *tool == BRUSH_TOOL))
-		*tool = BRUSH_TOOL;
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Grab", *tool == GRAB_TOOL))
-		*tool = GRAB_TOOL;
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Line", *tool == LINE_TOOL))
-		*tool = LINE_TOOL;
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Eraser", *tool == ERASER_TOOL))
-		*tool = ERASER_TOOL;
+	static const char *labels[] = {"Pencil", "Brush", "Grab", "Line", "Eraser"};
+	static const Tool tools[] = {PENCIL_TOOL, BRUSH_TOOL, GRAB_TOOL, LINE_TOOL, ERASER_TOOL};
+	int selected = 0;
+	for (int i = 0; i < 5; i++)
+		if (tools[i] == *tool)
+			selected = i;
+	ui::Segmented("tools", labels, 5, &selected);
+	*tool = tools[selected];
 }
 
 void effectSlider(EffectID effect)
@@ -878,8 +886,7 @@ void effectSlider(EffectID effect)
 	char id[64];
 	snprintf(id, sizeof(id), "##%s", effectNames[effect]);
 	char text[64];
-	snprintf(text, sizeof(text), "%s: %%.3f", effectNames[effect]);
-	if (ImGui::SliderFloat(id, &currentBank.waves[selectedId].effects[effect], 0.0f, 1.0f, text))
+	if (ui::Slider(id, effectNames[effect], &currentBank.waves[selectedId].effects[effect], 0.0f, 1.0f, "%.3f"))
 	{
 		currentBank.waves[selectedId].updatePost();
 		historyPush();
@@ -903,12 +910,20 @@ void editorPage()
 		Wave *wave = &currentBank.waves[selectedId];
 		float *effects = wave->effects;
 
+		// Share the leftover height between the waveform and harmonics graphs
+		float lineHeight = ImGui::GetItemsLineHeightWithSpacing();
+		float headingHeight = (theme.fontHeading ? theme.fontHeading->FontSize * ImGui::GetIO().FontGlobalScale : 12.f) + ImGui::GetStyle().ItemSpacing.y * 2.f + 2.f;
+		float fixedHeight = lineHeight * (2 + (EFFECTS_LEN + 1) / 2) + headingHeight * 3.f + ImGui::GetStyle().ItemSpacing.y * 3.f + 6.f;
+		float graphHeight = ImGui::GetContentRegionAvail().y - fixedHeight;
+		float waveHeight = fmaxf(160.f, graphHeight * 0.6f);
+		float harmonicsHeight = fmaxf(100.f, graphHeight * 0.4f);
+
 		ImGui::PushItemWidth(-1);
 
 		static enum Tool tool = PENCIL_TOOL;
 		renderToolSelector(&tool);
 
-		ImGui::SameLine();
+		ImGui::SameLine(0, 16);
 		if (ImGui::Button("Clear"))
 		{
 			currentBank.waves[selectedId].clear();
@@ -938,28 +953,38 @@ void editorPage()
 		// ImGui::SameLine();
 		// if (ImGui::RadioButton("Smooth", tool == SMOOTH_TOOL)) tool = SMOOTH_TOOL;
 
-		ImGui::Text("Waveform");
+		ui::SectionHeading("Waveform");
 		const int oversample = 4;
 		float waveOversample[WAVE_LEN * oversample];
 		cyclicOversample(wave->postSamples, waveOversample, WAVE_LEN, oversample);
-		if (renderWave("WaveEditor", 200.0, wave->samples, WAVE_LEN, waveOversample, WAVE_LEN * oversample, tool))
+		if (renderWave("WaveEditor", waveHeight, wave->samples, WAVE_LEN, waveOversample, WAVE_LEN * oversample, tool))
 		{
 			currentBank.waves[selectedId].commitSamples();
 			historyPush();
 		}
 
-		ImGui::Text("Harmonics");
-		if (renderHistogram("HarmonicEditor", 200.0, wave->harmonics, WAVE_LEN / 2, wave->postHarmonics, WAVE_LEN / 2, tool))
+		ui::SectionHeading("Harmonics");
+		if (renderHistogram("HarmonicEditor", harmonicsHeight, wave->harmonics, WAVE_LEN / 2, wave->postHarmonics, WAVE_LEN / 2, tool))
 		{
 			currentBank.waves[selectedId].commitHarmonics();
 			historyPush();
 		}
 
-		ImGui::Text("Effects");
-		for (int i = 0; i < EFFECTS_LEN; i++)
+		ui::SectionHeading("Effects");
 		{
-			effectSlider((EffectID)i);
+			// Two columns of effect sliders
+			float spacing = ImGui::GetStyle().ItemSpacing.x;
+			float columnWidth = (ImGui::GetContentRegionAvailWidth() - spacing) / 2.0f;
+			ImGui::PushItemWidth(columnWidth);
+			for (int i = 0; i < EFFECTS_LEN; i++)
+			{
+				if (i % 2 == 1)
+					ImGui::SameLine();
+				effectSlider((EffectID)i);
+			}
+			ImGui::PopItemWidth();
 		}
+		ImGui::Dummy(ImVec2(0, 2));
 
 		if (ImGui::Checkbox("Cycle", &currentBank.waves[selectedId].cycle))
 		{
@@ -1008,13 +1033,11 @@ void effectHistogram(EffectID effect, Tool tool)
 	average /= BANK_LEN;
 	float oldAverage = average;
 
-	ImGui::Text("%s", effectNames[effect]);
+	ui::SectionHeading(effectNames[effect]);
 
 	char id[64];
 	snprintf(id, sizeof(id), "##%sAverage", effectNames[effect]);
-	char text[64];
-	snprintf(text, sizeof(text), "Average %s: %%.3f", effectNames[effect]);
-	if (ImGui::SliderFloat(id, &average, 0.0f, 1.0f, text))
+	if (ui::Slider(id, "Average", &average, 0.0f, 1.0f, "%.3f"))
 	{
 		// Change the average effect level to the new average
 		float deltaAverage = average - oldAverage;
@@ -1033,7 +1056,7 @@ void effectHistogram(EffectID effect, Tool tool)
 		}
 	}
 
-	if (renderHistogram(effectNames[effect], 120, value, BANK_LEN, NULL, 0, tool))
+	if (renderHistogram(effectNames[effect], 110, value, BANK_LEN, NULL, 0, tool))
 	{
 		for (int i = 0; i < BANK_LEN; i++)
 		{
@@ -1057,11 +1080,23 @@ void effectPage()
 		renderToolSelector(&tool);
 
 		ImGui::PushItemWidth(-1);
-		for (int i = 0; i < EFFECTS_LEN; i++)
 		{
-			effectHistogram((EffectID)i, tool);
+			// Two columns of effect graphs
+			float spacing = ImGui::GetStyle().ItemSpacing.x * 2.0f;
+			float columnWidth = (ImGui::GetContentRegionAvailWidth() - spacing) / 2.0f;
+			for (int i = 0; i < EFFECTS_LEN; i++)
+			{
+				if (i % 2 == 1)
+					ImGui::SameLine(0, spacing);
+				ImGui::BeginGroup();
+				ImGui::PushItemWidth(columnWidth);
+				effectHistogram((EffectID)i, tool);
+				ImGui::PopItemWidth();
+				ImGui::EndGroup();
+			}
 		}
 		ImGui::PopItemWidth();
+		ImGui::Dummy(ImVec2(0, 4));
 
 		if (ImGui::Button("Cycle All"))
 		{
@@ -1151,9 +1186,13 @@ void waterfallPage()
 	{
 		ImGui::PushItemWidth(-1.0);
 		static float amplitude = 0.25;
-		ImGui::SliderFloat("##amplitude", &amplitude, 0.01, 1.0, "Scale: %.3f", 0.0);
 		static float angle = 1.0;
-		ImGui::SliderFloat("##angle", &angle, 0.0, 1.0, "Angle: %.3f");
+		float width = (ImGui::GetContentRegionAvailWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+		ImGui::PushItemWidth(width);
+		ui::Slider("##amplitude", "Scale", &amplitude, 0.01, 1.0, "%.3f", 0.0);
+		ImGui::SameLine();
+		ui::Slider("##angle", "Angle", &angle, 0.0, 1.0, "%.3f");
+		ImGui::PopItemWidth();
 
 		renderWaterfall("##waterfall", -1.0, amplitude, angle, &morphZ);
 	}
@@ -1173,13 +1212,18 @@ void renderMain()
 		renderPreview();
 		// Tab bar
 
+		ImGui::Dummy(ImVec2(0, 2));
+
 		// Selectable Bank Length
 		const char *bankLens[] = {"16", "32", "64"};
 		static int len = 1;
-		ImGui::PushItemWidth(100.0);
+		ImGui::AlignFirstTextHeightToWidgets();
+		ImGui::TextDisabled("Waves");
+		ImGui::SameLine();
+		ImGui::PushItemWidth(70.0);
 		ImGui::Combo("##width", &len, bankLens, IM_ARRAYSIZE(bankLens));
 		ImGui::PopItemWidth();
-		ImGui::SameLine();
+		ImGui::SameLine(0, 20);
 		BANK_LEN = atoi(bankLens[len]);
 
 		{
@@ -1189,8 +1233,7 @@ void renderMain()
 				"Grid XY View",
 				"Waterfall View",
 				"Import"};
-			static int hoveredTab = 0;
-			ImGui::TabLabels(NUM_PAGES, tabLabels, (int *)&currentPage, NULL, false, &hoveredTab);
+			ui::Tabs(tabLabels, NUM_PAGES, (int *)&currentPage);
 		}
 
 		// Page
@@ -1236,11 +1279,18 @@ static void refreshStyle()
 	ImGuiStyle &style = ImGui::GetStyle();
 
 	style.Alpha = 1.f;
+	// Classic layout (the Modern scheme overrides these below)
 	style.WindowRounding = 2.f;
 	style.GrabRounding = 2.f;
 	style.ChildWindowRounding = 2.f;
 	style.ScrollbarRounding = 2.f;
 	style.FrameRounding = 2.f;
+	style.WindowPadding = ImVec2(8, 8);
+	style.FramePadding = ImVec2(4, 3);
+	style.ItemSpacing = ImVec2(8, 4);
+	style.ItemInnerSpacing = ImVec2(4, 4);
+	style.ScrollbarSize = 16.f;
+	style.GrabMinSize = 10.f;
 	style.FramePadding = ImVec2(6.0f, 4.0f);
 
 	if (styleId == 0)
@@ -1491,22 +1541,143 @@ static void refreshStyle()
 		style.Colors[ImGuiCol_ModalWindowDarkening] = alpha(base[0x2], 0.5);
 		logoTexture = logoTextureDark;
 	}
+	else if (styleId == 4)
+	{
+		// Modern: deep charcoal panels with a cyan accent
+		ImU32 bg = IM_COL32(0x11, 0x13, 0x18, 0xff);
+		ImU32 panel = IM_COL32(0x17, 0x1a, 0x20, 0xff);
+		ImU32 raised = IM_COL32(0x1e, 0x22, 0x29, 0xff);
+		ImU32 control = IM_COL32(0x22, 0x27, 0x30, 0xff);
+		ImU32 hover = IM_COL32(0x2b, 0x31, 0x3b, 0xff);
+		ImU32 pressed = IM_COL32(0x34, 0x3b, 0x47, 0xff);
+		ImU32 border = IM_COL32(0x25, 0x2a, 0x33, 0xff);
+		ImU32 text = IM_COL32(0xdc, 0xe2, 0xea, 0xff);
+		ImU32 textDim = IM_COL32(0x87, 0x90, 0xa0, 0xff);
+		ImU32 accent = IM_COL32(0x46, 0xd3, 0xea, 0xff);
+		ImU32 accent2 = IM_COL32(0x7c, 0x6c, 0xf4, 0xff);
+#define C(x) ImGui::ColorConvertU32ToFloat4(x)
+
+		style.WindowRounding = 0.f;
+		style.ChildWindowRounding = 10.f;
+		style.FrameRounding = 6.f;
+		style.GrabRounding = 3.f;
+		style.ScrollbarRounding = 6.f;
+		style.WindowPadding = ImVec2(14, 12);
+		style.FramePadding = ImVec2(10, 6);
+		style.ItemSpacing = ImVec2(8, 8);
+		style.ItemInnerSpacing = ImVec2(6, 6);
+		style.ScrollbarSize = 10.f;
+		style.GrabMinSize = 3.f;
+
+		style.Colors[ImGuiCol_Text] = C(text);
+		style.Colors[ImGuiCol_TextDisabled] = C(textDim);
+		style.Colors[ImGuiCol_WindowBg] = C(bg);
+		style.Colors[ImGuiCol_ChildWindowBg] = C(panel);
+		style.Colors[ImGuiCol_PopupBg] = C(raised);
+		style.Colors[ImGuiCol_Border] = C(border);
+		style.Colors[ImGuiCol_BorderShadow] = transparent;
+		style.Colors[ImGuiCol_FrameBg] = C(control);
+		style.Colors[ImGuiCol_FrameBgHovered] = C(hover);
+		style.Colors[ImGuiCol_FrameBgActive] = C(pressed);
+		style.Colors[ImGuiCol_TitleBg] = C(panel);
+		style.Colors[ImGuiCol_TitleBgCollapsed] = C(panel);
+		style.Colors[ImGuiCol_TitleBgActive] = C(raised);
+		style.Colors[ImGuiCol_MenuBarBg] = C(IM_COL32(0x0d, 0x0f, 0x13, 0xff));
+		style.Colors[ImGuiCol_ScrollbarBg] = transparent;
+		style.Colors[ImGuiCol_ScrollbarGrab] = C(hover);
+		style.Colors[ImGuiCol_ScrollbarGrabHovered] = C(pressed);
+		style.Colors[ImGuiCol_ScrollbarGrabActive] = C(colAlpha(accent, 0.7f));
+		style.Colors[ImGuiCol_ComboBg] = C(raised);
+		style.Colors[ImGuiCol_CheckMark] = C(accent);
+		style.Colors[ImGuiCol_SliderGrab] = C(accent);
+		style.Colors[ImGuiCol_SliderGrabActive] = C(text);
+		style.Colors[ImGuiCol_Button] = C(control);
+		style.Colors[ImGuiCol_ButtonHovered] = C(hover);
+		style.Colors[ImGuiCol_ButtonActive] = C(colAlpha(accent, 0.35f));
+		style.Colors[ImGuiCol_Header] = C(colAlpha(accent, 0.16f));
+		style.Colors[ImGuiCol_HeaderHovered] = C(colAlpha(accent, 0.24f));
+		style.Colors[ImGuiCol_HeaderActive] = C(colAlpha(accent, 0.32f));
+		style.Colors[ImGuiCol_Separator] = C(border);
+		style.Colors[ImGuiCol_SeparatorHovered] = C(hover);
+		style.Colors[ImGuiCol_SeparatorActive] = C(accent);
+		style.Colors[ImGuiCol_ResizeGrip] = transparent;
+		style.Colors[ImGuiCol_ResizeGripHovered] = C(colAlpha(accent, 0.4f));
+		style.Colors[ImGuiCol_ResizeGripActive] = C(accent);
+		style.Colors[ImGuiCol_CloseButton] = C(textDim);
+		style.Colors[ImGuiCol_CloseButtonHovered] = C(text);
+		style.Colors[ImGuiCol_CloseButtonActive] = C(accent);
+		style.Colors[ImGuiCol_PlotLines] = C(textDim);
+		style.Colors[ImGuiCol_PlotLinesHovered] = C(accent);
+		style.Colors[ImGuiCol_PlotHistogram] = C(accent);
+		style.Colors[ImGuiCol_PlotHistogramHovered] = C(colAlpha(accent2, 0.5f));
+		style.Colors[ImGuiCol_TextSelectedBg] = C(colAlpha(accent, 0.3f));
+		style.Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(0.0f, 0.0f, 0.0f, 0.6f);
+		logoTexture = logoTextureLight;
+
+		theme.modern = true;
+		theme.accent = accent;
+		theme.accent2 = accent2;
+		theme.text = text;
+		theme.textDim = textDim;
+		theme.display = IM_COL32(0x0b, 0x0d, 0x11, 0xff);
+		theme.displayHi = IM_COL32(0x12, 0x1c, 0x24, 0xff);
+		theme.grid = IM_COL32(0xff, 0xff, 0xff, 0x0c);
+		theme.gridStrong = IM_COL32(0xff, 0xff, 0xff, 0x1c);
+		theme.control = control;
+		theme.controlHover = hover;
+		theme.outline = border;
+#undef C
+		return;
+	}
+
+	// Classic schemes: derive the custom widget colours from the ImGui palette
+	theme.modern = false;
+	theme.accent = ImGui::GetColorU32(ImGuiCol_PlotHistogram);
+	theme.accent2 = ImGui::GetColorU32(ImGuiCol_PlotHistogramHovered);
+	theme.text = ImGui::GetColorU32(ImGuiCol_Text);
+	theme.textDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+	theme.display = ImGui::GetColorU32(ImGuiCol_FrameBg);
+	theme.displayHi = ImGui::GetColorU32(ImGuiCol_WindowBg);
+	theme.grid = ImGui::GetColorU32(ImGuiCol_WindowBg);
+	theme.gridStrong = ImGui::GetColorU32(ImGuiCol_WindowBg);
+	theme.control = ImGui::GetColorU32(ImGuiCol_FrameBg);
+	theme.controlHover = ImGui::GetColorU32(ImGuiCol_FrameBgHovered);
+	theme.outline = 0;
 }
 
 void uiInit()
 {
 	ImGui::GetIO().IniFilename = NULL;
-	styleId = 3;
+	styleId = 4;
 
-	// Load fonts
-	ImGui::GetIO().Fonts->AddFontFromFileTTF("fonts/Lekton-Regular.ttf", 15.0);
+	// Load fonts. On Retina screens, rasterise them at the screen's pixel density and scale back down so text stays sharp.
+	float pixelScale = 1.f;
+	SDL_Window *window = SDL_GL_GetCurrentWindow();
+	if (window)
+	{
+		int w, h, drawW, drawH;
+		SDL_GetWindowSize(window, &w, &h);
+		SDL_GL_GetDrawableSize(window, &drawW, &drawH);
+		if (w > 0 && drawW > w)
+			pixelScale = (float)drawW / w;
+	}
+	ImFontConfig fontConfig;
+	fontConfig.OversampleH = (pixelScale > 1.f) ? 1 : 3;
+	fontConfig.OversampleV = (pixelScale > 1.f) ? 1 : 2;
+	ImGuiIO &io = ImGui::GetIO();
+	io.Fonts->AddFontFromFileTTF("fonts/Inter-Medium.ttf", 14.5f * pixelScale, &fontConfig);
+	theme.fontHeading = io.Fonts->AddFontFromFileTTF("fonts/Inter-SemiBold.ttf", 11.f * pixelScale, &fontConfig);
+	io.FontGlobalScale = 1.f / pixelScale;
 	logoTextureLight = loadImage("logo-light.png");
 	logoTextureDark = loadImage("logo-dark.png");
 
 	// Load UI settings
 	// If this gets any more complicated, it should be JSON.
 	{
-		FILE *f = fopen("ui.dat", "rb");
+		// Screenshot mode ignores saved settings; OSIRIS_SCREENSHOT_STYLE picks the colour scheme
+		if (getenv("OSIRIS_SCREENSHOTS") && getenv("OSIRIS_SCREENSHOT_STYLE"))
+			styleId = atoi(getenv("OSIRIS_SCREENSHOT_STYLE"));
+		FILE *f = getenv("OSIRIS_SCREENSHOTS") ? NULL : fopen("ui.dat", "rb");
 		if (f)
 		{
 			fread(&styleId, sizeof(styleId), 1, f);
@@ -1521,7 +1692,7 @@ void uiDestroy()
 {
 	// Save UI settings
 	{
-		FILE *f = fopen("ui.dat", "wb");
+		FILE *f = getenv("OSIRIS_SCREENSHOTS") ? NULL : fopen("ui.dat", "wb");
 		if (f)
 		{
 			fwrite(&styleId, sizeof(styleId), 1, f);
@@ -1533,4 +1704,39 @@ void uiDestroy()
 void uiRender()
 {
 	renderMain();
+}
+
+bool uiScreenshotStep(SDL_Window *window, const char *dir)
+{
+	static const char *pageNames[NUM_PAGES] = {"editor", "effects", "grid", "waterfall", "import"};
+	static int frame = 0;
+	static int page = 0;
+	// Give each page a few frames to settle (fonts, layout, audio thread)
+	if (++frame < 30)
+		return false;
+
+	int w, h;
+	SDL_GL_GetDrawableSize(window, &w, &h);
+	std::vector<unsigned char> pixels(w * h * 4);
+	std::vector<unsigned char> flipped(w * h * 4);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadBuffer(GL_BACK);
+	glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+	for (int y = 0; y < h; y++)
+	{
+		memcpy(&flipped[y * w * 4], &pixels[(h - 1 - y) * w * 4], w * 4);
+		for (int x = 0; x < w; x++)
+			flipped[(y * w + x) * 4 + 3] = 255;
+	}
+	char path[1024];
+	snprintf(path, sizeof(path), "%s/%d-%s.png", dir, page, pageNames[page]);
+	unsigned err = lodepng_encode32_file(path, flipped.data(), w, h);
+	printf("Screenshot %s (%dx%d)%s\n", path, w, h, err ? " FAILED" : "");
+
+	frame = 0;
+	page++;
+	if (page >= NUM_PAGES)
+		return true;
+	currentPage = (Page)page;
+	return false;
 }
